@@ -27,7 +27,8 @@ class UI {
         this.ctx = canvas.getContext('2d', { alpha: false });
         this.cols = 0;
         this.rows = 0;
-        this.lastGrid = null; // Cache for rendering
+        this.stride = 0; // 32-bit words per row
+        this.lastGrid = null; // Uint32Array
         
         // Worker
         this.worker = new Worker('worker.js');
@@ -43,7 +44,7 @@ class UI {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         
-        // UI Loop (only for ghost patterns and responsiveness, grid updates come from worker)
+        // UI Loop
         this.renderLoop = this.renderLoop.bind(this);
         requestAnimationFrame(this.renderLoop);
     }
@@ -53,6 +54,7 @@ class UI {
         this.canvas.height = this.canvas.parentElement.clientHeight;
         this.cols = Math.floor(this.canvas.width / CONF.cellSize);
         this.rows = Math.floor(this.canvas.height / CONF.cellSize);
+        this.stride = Math.ceil(this.cols / 32);
         
         // Send new dimensions to worker
         this.worker.postMessage({ 
@@ -81,16 +83,24 @@ class UI {
     }
 
     handleExport(data) {
-        const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+        // Convert TypedArray to normal array for JSON
+        const exportObj = {
+            w: data.w,
+            h: data.h,
+            packed: true,
+            data: Array.from(data.data) 
+        };
+        
+        const blob = new Blob([JSON.stringify(exportObj)], {type: 'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `gol_export_${Date.now()}.json`;
+        a.download = `gol_packed_${Date.now()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast("Exported to Disk");
+        toast("Exported");
     }
 
     draw() {
@@ -116,18 +126,29 @@ class UI {
             this.ctx.stroke();
         }
 
-        // Live Cells
+        // Live Cells (Optimized Rendering)
         this.ctx.fillStyle = CONF.liveColor;
         const sz = CONF.cellSize > 1 ? CONF.cellSize - 1 : 1;
 
-        // Render visible grid
-        // Note: Rendering logic still happens on main thread, iterating the buffer sent by worker.
-        // This is efficient enough for < 1 million cells.
+        // Iterate words
         for (let i = 0; i < this.lastGrid.length; i++) {
-            if (this.lastGrid[i] === 1) {
-                const x = (i % this.cols) * CONF.cellSize;
-                const y = Math.floor(i / this.cols) * CONF.cellSize;
-                this.ctx.fillRect(x, y, sz, sz);
+            const word = this.lastGrid[i];
+            if (word === 0) continue; // Skip empty words
+
+            const wordRow = Math.floor(i / this.stride); // y
+            const wordColStart = (i % this.stride) * 32; // x start
+
+            // Iterate bits in word
+            for (let bit = 0; bit < 32; bit++) {
+                if ((word >>> bit) & 1) {
+                    const x = (wordColStart + bit) * CONF.cellSize;
+                    const y = wordRow * CONF.cellSize;
+                    
+                    // Check bounds (padding bits might be out of view)
+                    if (x < this.canvas.width && y < this.canvas.height) {
+                        this.ctx.fillRect(x, y, sz, sz);
+                    }
+                }
             }
         }
 
@@ -147,7 +168,6 @@ class UI {
     }
 
     renderLoop() {
-        // Keep checking for mouse interactions or animations independent of worker
         if (!this.isRunning) {
              this.draw();
         }
@@ -172,7 +192,6 @@ function updateBtnState(running) {
     btn.classList.toggle('active', running);
 }
 
-// Controls logic (reusable)
 const actions = {
     togglePlay: () => ui.worker.postMessage({ type: ui.isRunning ? 'stop' : 'start' }),
     step: () => ui.worker.postMessage({ type: 'step' }),
@@ -192,10 +211,9 @@ const actions = {
     rotate: () => {
         rotateCurrentPattern();
         document.querySelector('[data-mode="paste"]').click();
-    }
+    },
     toggleSidebar: () => {
         document.getElementById('sidebar').classList.toggle('collapsed');
-        // Wait for transition then resize
         setTimeout(() => ui.resize(), 350); 
     }
 };
@@ -216,7 +234,6 @@ document.getElementById('zoom-range').oninput = (e) => {
     actions.setZoom(parseInt(e.target.value));
 };
 
-// Tools
 document.querySelectorAll('.tool-btn').forEach(b => {
     b.onclick = () => {
         document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
@@ -248,7 +265,6 @@ function rotateCurrentPattern() {
     toast("Rotated");
 }
 
-// Mouse Input
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     ui.mouse.x = e.clientX - rect.left;
@@ -261,7 +277,7 @@ window.addEventListener('mouseup', () => { ui.mouse.down = false; });
 function applyTool() {
     const x = Math.floor(ui.mouse.x / CONF.cellSize);
     const y = Math.floor(ui.mouse.y / CONF.cellSize);
-    const idx = ui.idx(x,y);
+    const idx = ui.idx(x,y); // This is flat index (y * cols + x)
 
     if (ui.mode === 'draw') {
         ui.worker.postMessage({ type: 'setCell', payload: { idx, val: 1 }});
@@ -279,61 +295,33 @@ function applyTool() {
     }
 }
 
-// Keyboard Shortcuts
 window.addEventListener('keydown', (e) => {
-    // Ignore if focused on input
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
 
     switch(e.key) {
-        case ' ':
-            e.preventDefault();
-            actions.togglePlay();
-            break;
-        case 'ArrowRight':
-            actions.step();
-            break;
-        case 'ArrowLeft':
-            actions.reverse();
-            break;
-        case 'c':
-        case 'C':
-            actions.clear();
-            break;
-        case 'r':
-        case 'R':
-            actions.rotate();
-            break;
-        case '[':
-            {
-                const current = parseInt(document.getElementById('speed-range').value);
-                actions.setFps(Math.max(1, current - 5));
-            }
-            break;
-        case ']':
-            {
-                const current = parseInt(document.getElementById('speed-range').value);
-                actions.setFps(Math.min(60, current + 5));
-            }
-            break;
-        case '/':
-            if (e.ctrlKey) toggleHelp();
-            break;
-        case 'Escape':
-            document.getElementById('help-modal').classList.remove('show');
-            break;
-        case 'Tab':
-            e.preventDefault();
-            actions.toggleSidebar();
-            break;
+        case ' ': e.preventDefault(); actions.togglePlay(); break;
+        case 'ArrowRight': actions.step(); break;
+        case 'ArrowLeft': actions.reverse(); break;
+        case 'c': case 'C': actions.clear(); break;
+        case 'r': case 'R': actions.rotate(); break;
+        case '[': {
+            const current = parseInt(document.getElementById('speed-range').value);
+            actions.setFps(Math.max(1, current - 5));
+        } break;
+        case ']': {
+            const current = parseInt(document.getElementById('speed-range').value);
+            actions.setFps(Math.min(60, current + 5));
+        } break;
+        case '/': if (e.ctrlKey) toggleHelp(); break;
+        case 'Escape': document.getElementById('help-modal').classList.remove('show'); break;
+        case 'Tab': e.preventDefault(); actions.toggleSidebar(); break;
     }
 });
 
 function toggleHelp() {
-    const el = document.getElementById('help-modal');
-    el.classList.toggle('show');
+    document.getElementById('help-modal').classList.toggle('show');
 }
 
-// I/O
 const toast = (txt, isError = false) => {
     const el = document.getElementById('msg');
     el.innerText = txt;
@@ -342,6 +330,7 @@ const toast = (txt, isError = false) => {
     setTimeout(() => el.style.opacity = 0, 2000);
 };
 
+// Storage Logic
 document.getElementById('btn-save').onclick = () => {
     const name = document.getElementById('save-name').value || 'Untitled';
     if (!ui.lastGrid) return;
@@ -350,6 +339,7 @@ document.getElementById('btn-save').onclick = () => {
         timestamp: Date.now(),
         w: ui.cols,
         h: ui.rows,
+        packed: true,
         data: Array.from(ui.lastGrid)
     };
     try {
@@ -389,30 +379,56 @@ function loadFromJSON(jsonString) {
         const state = JSON.parse(jsonString);
         if (!state.w || !state.h || !state.data) throw new Error("Invalid Format");
 
-        const newGrid = new Uint8Array(ui.cols * ui.rows);
-        
-        if (state.w === ui.cols && state.h === ui.rows) {
-             newGrid.set(state.data);
+        let bufferToSend;
+
+        // Check if data is packed (Uint32) or legacy (Uint8)
+        if (state.packed) {
+            // Exact match on dimensions?
+            if (state.w === ui.cols && state.h === ui.rows) {
+                bufferToSend = new Uint32Array(state.data);
+            } else {
+                // Harder to resize packed data on the fly in UI.
+                // For now, we just fail or reset.
+                // Or we can implement a basic resize here.
+                toast("Dim Mismatch", true);
+                return;
+            }
         } else {
-             const offsetX = Math.floor((ui.cols - state.w) / 2);
-             const offsetY = Math.floor((ui.rows - state.h) / 2);
-             for(let i = 0; i < state.data.length; i++) {
-                 if(state.data[i] === 1) {
-                     const srcX = i % state.w;
-                     const srcY = Math.floor(i / state.w);
-                     const destX = srcX + offsetX;
-                     const destY = srcY + offsetY;
-                     const destIdx = destY * ui.cols + destX;
-                     if (destX >= 0 && destX < ui.cols && destY >= 0 && destY < ui.rows) {
-                         newGrid[destIdx] = 1;
-                     }
-                 }
-             }
+            // Legacy import (unpacked 0/1)
+            // We must pack it before sending to worker
+            // Or implement logic to pack.
+            // Since we don't want to duplicate packing logic, let's just send 
+            // a message to worker saying "loadLegacy"?
+            // But worker expects Uint32Array.
+            
+            // Let's implement a simple packer here for compatibility
+            const stride = Math.ceil(state.w / 32);
+            const packed = new Uint32Array(stride * state.h);
+            
+            for(let i=0; i<state.data.length; i++) {
+                if(state.data[i]) {
+                    const x = i % state.w;
+                    const y = Math.floor(i / state.w);
+                    
+                    // Handle resize/centering if needed
+                    // For now assume direct mapping or center
+                    const destX = x + Math.floor((ui.cols - state.w)/2);
+                    const destY = y + Math.floor((ui.rows - state.h)/2);
+                    
+                    if (destX >= 0 && destX < ui.cols && destY >= 0 && destY < ui.rows) {
+                         const destStride = Math.ceil(ui.cols / 32);
+                         const wordIdx = destY * destStride + Math.floor(destX / 32);
+                         const bit = destX % 32;
+                         packed[wordIdx] |= (1 << bit);
+                    }
+                }
+            }
+            bufferToSend = packed;
         }
         
         ui.worker.postMessage({ 
             type: 'load', 
-            payload: newGrid 
+            payload: bufferToSend 
         });
         toast("Loaded");
     } catch (e) {

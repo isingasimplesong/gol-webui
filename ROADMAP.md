@@ -31,9 +31,12 @@ This document outlines the strategic development plan for the Game of Life WebUI
 ## Phase 3: Algorithmic Optimization (The "Computer Scientist" Approach)
 **Goal:** Drastically increase performance and memory efficiency.
 
+- [x] **Bitwise Data Structure**
+    - Switch from `Uint8Array` to `Uint32Array` (Packed Grid).
+    - Reduce memory usage by 8x.
+    - Optimize `postMessage` using Transferable Objects.
 - [ ] **Bitwise Parallelism**
-    - Switch from `Uint8Array` to `Uint32Array`.
-    - Implement bitwise operations for neighbor counting (32 cells at once).
+    - Implement SWAR (SIMD Within A Register) for neighbor counting (32 cells at once).
 - [ ] **WASM Backend**
     - Port core logic to Go (TinyGo) or Rust.
     - Compile to WebAssembly for near-native performance.
