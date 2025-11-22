@@ -70,7 +70,7 @@ self.onmessage = function(e) {
             sendUpdate();
             break;
         case 'randomize':
-            randomize();
+            randomize(payload);
             sendUpdate();
             break;
         case 'load':
@@ -136,29 +136,18 @@ function reverse() {
     }
 }
 
-function randomize() {
+function randomize(density = 0.25) {
     saveState();
     grid.fill(0);
-    // Randomize 32 bits at a time
+    // Randomize with custom density
     for (let i = 0; i < grid.length; i++) {
-        // Less dense: ~20% fill instead of 50%
-        // Logic: Generate random number, AND it with a mask or threshold?
-        // Simplest for 32-bit word: Just rely on JS Math.random per word? 
-        // No, that's still uniform.
-        // We want fewer bits set.
-        
-        // Method: Iterate bits? Slow.
-        // Method: Construct word from sparse chunks?
-        
-        // Fast approximation for ~25% density:
-        // R1 & R2 (where R is random 32-bit int) -> 25% bits set on average
-        
-        const r1 = (Math.random() * 4294967296) | 0;
-        const r2 = (Math.random() * 4294967296) | 0;
-        grid[i] = r1 & r2; 
-        
-        // For even less (12.5%), use r1 & r2 & r3. 
-        // Let's stick to ~25% for a good balance.
+        let word = 0;
+        for (let b = 0; b < 32; b++) {
+             if (Math.random() < density) {
+                 word |= (1 << b);
+             }
+        }
+        grid[i] = word;
     }
     generation = 0;
     history = [];

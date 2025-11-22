@@ -197,7 +197,10 @@ const actions = {
     step: () => ui.worker.postMessage({ type: 'step' }),
     reverse: () => ui.worker.postMessage({ type: 'reverse' }),
     clear: () => ui.worker.postMessage({ type: 'clear' }),
-    randomize: () => ui.worker.postMessage({ type: 'randomize' }),
+    randomize: () => {
+        const density = parseInt(document.getElementById('density-range').value) / 100;
+        ui.worker.postMessage({ type: 'randomize', payload: density });
+    },
     setFps: (val) => {
         document.getElementById('speed-range').value = val;
         document.getElementById('speed-label').innerText = `${val} FPS`;
@@ -232,6 +235,10 @@ document.getElementById('speed-range').oninput = (e) => {
 
 document.getElementById('zoom-range').oninput = (e) => {
     actions.setZoom(parseInt(e.target.value));
+};
+
+document.getElementById('density-range').oninput = (e) => {
+    document.getElementById('density-label').innerText = `${e.target.value}%`;
 };
 
 document.querySelectorAll('.tool-btn').forEach(b => {
