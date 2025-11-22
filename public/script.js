@@ -6,10 +6,11 @@ const CONF = {
     gridColor: '#3B4252',
     liveColor: '#A3BE8C',
     deadColor: '#2E3440',
-    historyLimit: 200 // Max frames to reverse
+    historyLimit: 200
 };
 
-const PATTERNS = {
+// Standard patterns
+const BASE_PATTERNS = {
     glider: [[0,1],[1,2],[2,0],[2,1],[2,2]],
     lwss: [[0,1],[0,4],[1,0],[2,0],[3,0],[3,4],[4,0],[4,1],[4,2],[4,3]],
     block: [[0,0],[0,1],[1,0],[1,1]],
@@ -18,21 +19,25 @@ const PATTERNS = {
     gosper: [[5,1],[5,2],[6,1],[6,2],[5,11],[6,11],[7,11],[4,12],[8,12],[3,13],[9,13],[3,14],[9,14],[6,15],[4,16],[8,16],[5,17],[6,17],[7,17],[6,18],[3,21],[4,21],[5,21],[3,22],[4,22],[5,22],[2,23],[6,23],[1,25],[2,25],[6,25],[7,25],[3,35],[4,35],[3,36],[4,36]]
 };
 
+// Mutable copy to handle rotation state without destroying originals
+let CURRENT_PATTERNS = JSON.parse(JSON.stringify(BASE_PATTERNS));
+
 class Game {
     constructor(canvas) {
         this.canvas = canvas;
+        // Alpha: false hints browser to optimize for opaque composition
         this.ctx = canvas.getContext('2d', { alpha: false });
         this.cols = 0;
         this.rows = 0;
         this.grid = null;
-        this.history = []; // Ring buffer logic handled manually
+        this.history = [];
         this.running = false;
         this.generation = 0;
         this.fps = 30;
         this.lastFrame = 0;
         
         this.mouse = { x: 0, y: 0, down: false };
-        this.mode = 'draw'; // draw, erase, paste
+        this.mode = 'draw'; 
         this.selectedPattern = 'glider';
 
         this.resize();
@@ -46,14 +51,21 @@ class Game {
         this.canvas.height = this.canvas.parentElement.clientHeight;
         this.cols = Math.floor(this.canvas.width / CONF.cellSize);
         this.rows = Math.floor(this.canvas.height / CONF.cellSize);
-        // Reset grid
-        this.grid = new Uint8Array(this.cols * this.rows);
+        
+        // Re-initialize grid safely
+        const newGrid = new Uint8Array(this.cols * this.rows);
+        
+        // Optional: Copy old grid to new if resizing (simple best-effort center crop)
+        // For now, we reset to ensure clean state, as mapping old->new is complex with toroidal wrap
+        this.grid = newGrid;
+        
         this.history = [];
         this.draw();
     }
 
     idx(x, y) {
-        // Wrap around logic (Toroidal surface)
+        // Inline modulo for positive integers can be: (x % n + n) % n
+        // But simpler:
         const cx = (x + this.cols) % this.cols;
         const cy = (y + this.rows) % this.rows;
         return cy * this.cols + cx;
@@ -68,31 +80,42 @@ class Game {
     }
 
     saveState() {
-        // Deep copy current grid to history
         if (this.history.length >= CONF.historyLimit) {
             this.history.shift();
         }
-        this.history.push(new Uint8Array(this.grid));
+        // Uint8Array.slice() is fast for cloning
+        this.history.push(this.grid.slice());
     }
 
     step() {
         this.saveState();
         const next = new Uint8Array(this.cols * this.rows);
+        const w = this.cols;
+        const h = this.rows;
         let changes = false;
 
-        for (let y = 0; y < this.rows; y++) {
-            for (let x = 0; x < this.cols; x++) {
-                const i = y * this.cols + x;
+        // Performance: Lift constants out of the loop
+        // Also iterating with raw index i is often faster, but we need (x,y) for neighbors
+        
+        for (let y = 0; y < h; y++) {
+            const yRow = y * w;
+            
+            // Pre-calculate neighbor row indices for wrapping
+            const yPrev = ((y - 1 + h) % h) * w;
+            const yNext = ((y + 1) % h) * w;
+
+            for (let x = 0; x < w; x++) {
+                const i = yRow + x;
                 const state = this.grid[i];
                 
-                // Count neighbors (optimized unrolled loop for 3x3)
-                let neighbors = 0;
-                for (let dy = -1; dy <= 1; dy++) {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        if (dx === 0 && dy === 0) continue;
-                        neighbors += this.getCell(x+dx, y+dy);
-                    }
-                }
+                // Optimized neighbor counting using pre-calc rows + x wrapping
+                const xPrev = (x - 1 + w) % w;
+                const xNext = (x + 1) % w;
+
+                const neighbors = 
+                    this.grid[yPrev + xPrev] + this.grid[yPrev + x] + this.grid[yPrev + xNext] +
+                    this.grid[yRow  + xPrev] +                        this.grid[yRow  + xNext] +
+                    this.grid[yNext + xPrev] + this.grid[yNext + x] + this.grid[yNext + xNext];
 
                 if (state === 1 && (neighbors < 2 || neighbors > 3)) {
                     next[i] = 0;
@@ -122,11 +145,12 @@ class Game {
 
     randomize() {
         this.saveState();
+        // Using fill and map might be cleaner, but loop is explicit
         for (let i = 0; i < this.grid.length; i++) {
             this.grid[i] = Math.random() > 0.85 ? 1 : 0;
         }
         this.generation = 0;
-        this.history = []; // Clear history on new start
+        this.history = [];
         this.draw();
     }
 
@@ -140,46 +164,74 @@ class Game {
     }
 
     draw() {
-        // Background
+        // Clear whole canvas
         this.ctx.fillStyle = CONF.deadColor;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // Grid Lines (Optional, efficient way)
-        this.ctx.strokeStyle = '#353C4A';
-        this.ctx.lineWidth = 1;
-        this.ctx.beginPath();
-        for(let x=0; x<=this.canvas.width; x+=CONF.cellSize) {
-            this.ctx.moveTo(x,0); this.ctx.lineTo(x, this.canvas.height);
+        // Grid Lines (only if cell size is large enough to matter)
+        if (CONF.cellSize >= 4) {
+            this.ctx.strokeStyle = '#353C4A';
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            const w = this.canvas.width;
+            const h = this.canvas.height;
+            for(let x=0; x<=w; x+=CONF.cellSize) {
+                this.ctx.moveTo(x,0); this.ctx.lineTo(x, h);
+            }
+            for(let y=0; y<=h; y+=CONF.cellSize) {
+                this.ctx.moveTo(0,y); this.ctx.lineTo(w, y);
+            }
+            this.ctx.stroke();
         }
-        for(let y=0; y<=this.canvas.height; y+=CONF.cellSize) {
-            this.ctx.moveTo(0,y); this.ctx.lineTo(this.canvas.width, y);
-        }
-        this.ctx.stroke();
 
         // Live Cells
         this.ctx.fillStyle = CONF.liveColor;
+        const sz = CONF.cellSize > 1 ? CONF.cellSize - 1 : 1; // 1px gap for aesthetic
+        
         for (let i = 0; i < this.grid.length; i++) {
             if (this.grid[i] === 1) {
+                // Inverse index calculation
                 const x = (i % this.cols) * CONF.cellSize;
                 const y = Math.floor(i / this.cols) * CONF.cellSize;
-                // Draw slight padding for aesthetic
-                this.ctx.fillRect(x+1, y+1, CONF.cellSize-2, CONF.cellSize-2);
+                this.ctx.fillRect(x, y, sz, sz);
             }
         }
 
-        // Ghost Pattern (if in paste mode)
+        // Ghost Pattern
         if (this.mode === 'paste' && !this.running) {
             this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
-            const p = PATTERNS[this.selectedPattern];
+            const p = CURRENT_PATTERNS[this.selectedPattern];
             const mx = Math.floor(this.mouse.x / CONF.cellSize);
             const my = Math.floor(this.mouse.y / CONF.cellSize);
             
             for (let [px, py] of p) {
                 const tx = (mx + px) * CONF.cellSize;
                 const ty = (my + py) * CONF.cellSize;
-                this.ctx.fillRect(tx+1, ty+1, CONF.cellSize-2, CONF.cellSize-2);
+                this.ctx.fillRect(tx, ty, sz, sz);
             }
         }
+    }
+
+    rotateCurrentPattern() {
+        const p = CURRENT_PATTERNS[this.selectedPattern];
+        // 90 degree rotation: (x, y) -> (-y, x)
+        // Then normalize to keep positive coordinates
+        let minX = Infinity, minY = Infinity;
+        
+        const rotated = p.map(([x, y]) => {
+            const nx = -y;
+            const ny = x;
+            if (nx < minX) minX = nx;
+            if (ny < minY) minY = ny;
+            return [nx, ny];
+        });
+
+        // Normalize
+        const normalized = rotated.map(([x, y]) => [x - minX, y - minY]);
+        
+        CURRENT_PATTERNS[this.selectedPattern] = normalized;
+        this.draw();
+        toast("Rotated");
     }
 
     loop(timestamp) {
@@ -193,7 +245,6 @@ class Game {
                 this.draw();
             }
         } else {
-            // If not running, still redraw for mouse interactions (hover effects)
             this.draw();
         }
         requestAnimationFrame(this.loop);
@@ -209,16 +260,19 @@ const statDisplay = document.getElementById('stat-display');
 
 function updateStats() {
     let pop = 0;
-    for(let c of game.grid) if(c===1) pop++;
+    for(let i=0; i<game.grid.length; i++) {
+        if(game.grid[i]===1) pop++;
+    }
     statDisplay.innerText = `Gen: ${game.generation} | Pop: ${pop}`;
 }
 
 function updateBtnState() {
-    document.getElementById('btn-play').innerText = game.running ? "Pause" : "Play";
-    document.getElementById('btn-play').classList.toggle('active', game.running);
+    const btn = document.getElementById('btn-play');
+    btn.innerText = game.running ? "Pause" : "Play";
+    btn.classList.toggle('active', game.running);
 }
 
-// Playback
+// Playback Controls
 document.getElementById('btn-play').onclick = () => {
     game.running = !game.running;
     game.lastFrame = performance.now();
@@ -230,8 +284,7 @@ document.getElementById('btn-clear').onclick = () => game.clear();
 document.getElementById('btn-rand').onclick = () => game.randomize();
 
 // Speed
-const speedInput = document.getElementById('speed-range');
-speedInput.oninput = (e) => {
+document.getElementById('speed-range').oninput = (e) => {
     game.fps = parseInt(e.target.value);
     document.getElementById('speed-label').innerText = `${game.fps} FPS`;
 };
@@ -242,20 +295,34 @@ document.querySelectorAll('.tool-btn').forEach(b => {
         document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
         b.classList.add('active');
         game.mode = b.dataset.mode;
+        if (game.mode === 'paste') {
+             // If clicking paste, ensure a pattern is selected/visualized
+             game.draw();
+        }
     };
 });
+
 document.getElementById('pattern-select').onchange = (e) => {
     game.selectedPattern = e.target.value;
-    // Auto switch to paste tool
+    // Reset rotation on new pattern select? Optional. 
+    // For now, let's reset to base pattern to avoid confusion
+    CURRENT_PATTERNS[game.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[game.selectedPattern]));
+    
+    // Auto switch to paste
     document.querySelector('[data-mode="paste"]').click();
 };
 
-// Mouse Interaction
+document.getElementById('btn-rotate').onclick = () => {
+    game.rotateCurrentPattern();
+    // Ensure we are in paste mode
+    document.querySelector('[data-mode="paste"]').click();
+};
+
+// Mouse
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     game.mouse.x = e.clientX - rect.left;
     game.mouse.y = e.clientY - rect.top;
-
     if (game.mouse.down) applyTool();
 });
 canvas.addEventListener('mousedown', e => { game.mouse.down = true; applyTool(); });
@@ -270,52 +337,131 @@ function applyTool() {
     } else if (game.mode === 'erase') {
         game.setCell(x, y, 0);
     } else if (game.mode === 'paste' && game.mouse.down) {
-        // Only paste on single click/tap, not drag
-        const p = PATTERNS[game.selectedPattern];
-        game.saveState(); // Save before paste
+        const p = CURRENT_PATTERNS[game.selectedPattern];
+        game.saveState();
         for (let [px, py] of p) {
             game.setCell(x + px, y + py, 1);
         }
-        game.mouse.down = false; // Prevent drag-paste
+        game.mouse.down = false; 
     }
     game.draw();
     updateStats();
 }
 
-// Save/Load
-const toast = (txt) => {
+// Toast Notification
+const toast = (txt, isError = false) => {
     const el = document.getElementById('msg');
     el.innerText = txt;
+    el.style.borderColor = isError ? CONF.error : CONF.liveColor;
     el.style.opacity = 1;
     setTimeout(() => el.style.opacity = 0, 2000);
-}
+};
 
+// Local Storage
 document.getElementById('btn-save').onclick = () => {
     const name = document.getElementById('save-name').value || 'Untitled';
     const state = {
+        timestamp: Date.now(),
         w: game.cols,
         h: game.rows,
-        data: Array.from(game.grid) // Convert typed array to standard array
+        data: Array.from(game.grid)
     };
-    localStorage.setItem('gol_' + name, JSON.stringify(state));
-    toast(`Saved "${name}"`);
+    try {
+        localStorage.setItem('gol_' + name, JSON.stringify(state));
+        toast(`Saved "${name}"`);
+    } catch (e) {
+        toast("Storage Full!", true);
+    }
 };
 
 document.getElementById('btn-load').onclick = () => {
     const name = document.getElementById('save-name').value || 'Untitled';
     const raw = localStorage.getItem('gol_' + name);
-    if (!raw) { toast("Save not found"); return; }
-    
-    const state = JSON.parse(raw);
-    // Smart load: if sizes differ, center it
-    game.clear();
-    // Simple copy for now (assuming standard window size, or truncation)
-    // Ideal world: complex centering logic.
-    const limit = Math.min(state.data.length, game.grid.length);
-    for(let i=0; i<limit; i++) game.grid[i] = state.data[i];
-    game.draw();
-    toast(`Loaded "${name}"`);
+    if (!raw) { toast("Save not found", true); return; }
+    loadState(raw);
 };
+
+// File I/O
+document.getElementById('btn-export').onclick = () => {
+    const state = {
+        w: game.cols,
+        h: game.rows,
+        data: Array.from(game.grid)
+    };
+    const blob = new Blob([JSON.stringify(state)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gol_export_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("Exported to Disk");
+};
+
+document.getElementById('btn-import-trigger').onclick = () => {
+    document.getElementById('file-import').click();
+};
+
+document.getElementById('file-import').onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (ev) => loadState(ev.target.result);
+    reader.readAsText(file);
+    e.target.value = ''; // Reset to allow same file load again
+};
+
+// Unified Loader with Validation
+function loadState(jsonString) {
+    try {
+        const state = JSON.parse(jsonString);
+        
+        // Validation
+        if (!state.w || !state.h || !state.data || !Array.isArray(state.data)) {
+            throw new Error("Invalid Save Format");
+        }
+        
+        game.clear();
+        
+        // Center the loaded grid
+        // We need to handle different aspect ratios or sizes
+        const limit = Math.min(state.data.length, game.grid.length);
+        
+        // If sizes match exactly, fast copy
+        if (state.w === game.cols && state.h === game.rows) {
+            game.grid.set(state.data);
+        } else {
+            // Best effort map
+             // Center offset
+             const offsetX = Math.floor((game.cols - state.w) / 2);
+             const offsetY = Math.floor((game.rows - state.h) / 2);
+
+             for(let i = 0; i < state.data.length; i++) {
+                 if(state.data[i] === 1) {
+                     const srcX = i % state.w;
+                     const srcY = Math.floor(i / state.w);
+                     
+                     const destX = srcX + offsetX;
+                     const destY = srcY + offsetY;
+                     
+                     // Boundary checks
+                     if (destX >= 0 && destX < game.cols && destY >= 0 && destY < game.rows) {
+                         game.setCell(destX, destY, 1);
+                     }
+                 }
+             }
+        }
+        
+        game.draw();
+        toast("Loaded Successfully");
+    } catch (e) {
+        console.error(e);
+        toast("Load Failed: " + e.message, true);
+    }
+}
 
 // Initial
 game.randomize();

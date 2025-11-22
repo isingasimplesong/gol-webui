@@ -39,6 +39,7 @@
             </div>
             <div class="row">
                 <button class="tool-btn" data-mode="paste">Paste Pattern</button>
+                <button id="btn-rotate" title="Rotate 90°">↻</button>
             </div>
             <select id="pattern-select">
                 <option value="glider">Glider</option>
@@ -52,7 +53,13 @@
 
         <!-- Save/Load -->
         <div class="group">
-            <div class="label">Memory Bank</div>
+            <div class="label">Storage</div>
+            <div class="row">
+                <button id="btn-export">Export Disk</button>
+                <button id="btn-import-trigger">Import Disk</button>
+                <input type="file" id="file-import" accept=".json" style="display: none">
+            </div>
+            <div class="label" style="margin-top: 10px;">Browser Memory</div>
             <input type="text" id="save-name" placeholder="Pattern Name">
             <div class="row">
                 <button id="btn-save">Save</button>
