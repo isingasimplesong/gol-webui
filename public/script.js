@@ -184,6 +184,11 @@ const actions = {
         document.getElementById('speed-label').innerText = `${val} FPS`;
         ui.worker.postMessage({ type: 'setFps', payload: val });
     },
+    setZoom: (val) => {
+        document.getElementById('zoom-label').innerText = `${val}px`;
+        CONF.cellSize = parseInt(val);
+        ui.resize();
+    },
     rotate: () => {
         rotateCurrentPattern();
         document.querySelector('[data-mode="paste"]').click();
@@ -198,9 +203,11 @@ document.getElementById('btn-clear').onclick = actions.clear;
 document.getElementById('btn-rand').onclick = actions.randomize;
 
 document.getElementById('speed-range').oninput = (e) => {
-    const fps = parseInt(e.target.value);
-    document.getElementById('speed-label').innerText = `${fps} FPS`;
-    ui.worker.postMessage({ type: 'setFps', payload: fps });
+    actions.setFps(parseInt(e.target.value));
+};
+
+document.getElementById('zoom-range').oninput = (e) => {
+    actions.setZoom(parseInt(e.target.value));
 };
 
 // Tools

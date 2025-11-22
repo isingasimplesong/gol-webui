@@ -4,6 +4,7 @@
     --text: #D8DEE9; --text-dim: #4C566A;
     --primary: #88C0D0; --secondary: #81A1C1;
     --success: #A3BE8C; --error: #BF616A;
+    --warning: #B48EAD; /* Nord Magenta */
 }
 
 body {
@@ -35,7 +36,10 @@ button, select, input[type="text"] {
     transition: all 0.2s; flex: 1;
 }
 button:hover { border-color: var(--secondary); background: var(--bg); }
-button.active { background: var(--primary); color: var(--bg); font-weight: bold; }
+button.active { background: var(--warning); color: var(--bg); font-weight: bold; }
+#btn-play { background: var(--primary); color: var(--bg); font-weight: bold; }
+#btn-play:hover { opacity: 0.9; }
+#btn-play.active { background: var(--warning); }
 
 input[type="range"] { width: 100%; accent-color: var(--primary); cursor: ew-resize; }
 
