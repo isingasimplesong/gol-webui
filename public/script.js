@@ -231,11 +231,35 @@ const actions = {
     toggleSidebar: () => {
         document.getElementById('sidebar').classList.toggle('collapsed');
         setTimeout(() => ui.resize(), 350); 
+    },
+    recenter: () => {
+        ui.viewX = 0;
+        ui.viewY = 0;
+        ui.worker.postMessage({
+            type: 'viewportMove',
+            payload: { x: 0, y: 0 }
+        });
+        toast("View Centered");
+    },
+    share: () => {
+        const params = new URLSearchParams();
+        params.set('x', Math.round(ui.viewX));
+        params.set('y', Math.round(ui.viewY));
+        params.set('z', CONF.cellSize);
+        
+        const url = `${window.location.origin}${window.location.pathname}#${params.toString()}`;
+        window.history.replaceState(null, null, `#${params.toString()}`);
+        
+        navigator.clipboard.writeText(url).then(() => {
+            toast("Link Copied! 🔗");
+        }).catch(() => toast("Copy Failed", true));
     }
 };
 
 // Bindings
 document.getElementById('panel-toggle').onclick = actions.toggleSidebar;
+document.getElementById('btn-center').onclick = actions.recenter;
+document.getElementById('btn-share').onclick = actions.share;
 document.getElementById('btn-play').onclick = actions.togglePlay;
 document.getElementById('btn-step').onclick = actions.step;
 document.getElementById('btn-rev-step').onclick = actions.reverse;
@@ -278,8 +302,116 @@ function rotateCurrentPattern() {
     toast("Rotated");
 }
 
-// Mouse Input
-canvas.addEventListener('mousemove', e => {
+// RLE Import Logic
+const rleModal = document.getElementById('rle-modal');
+const rleInput = document.getElementById('rle-input');
+
+document.getElementById('btn-import-rle').onclick = () => {
+    rleInput.value = '';
+    rleModal.classList.add('show');
+    rleInput.focus();
+};
+
+document.getElementById('btn-rle-cancel').onclick = () => {
+    rleModal.classList.remove('show');
+};
+
+document.getElementById('btn-rle-load').onclick = () => {
+    const code = rleInput.value;
+    if (!code.trim()) return;
+
+    try {
+        const pattern = parseRLE(code);
+        if (pattern.length === 0) throw new Error("No cells found");
+
+        // Add to patterns and select it
+        CURRENT_PATTERNS['imported'] = pattern;
+        
+        // Add option if not exists
+        const select = document.getElementById('pattern-select');
+        if (!select.querySelector('option[value="imported"]')) {
+            const opt = document.createElement('option');
+            opt.value = 'imported';
+            opt.innerText = 'Imported / Custom';
+            select.appendChild(opt);
+        }
+        select.value = 'imported';
+        ui.selectedPattern = 'imported';
+        
+        // Switch to paste mode
+        document.querySelector('[data-mode="paste"]').click();
+        rleModal.classList.remove('show');
+        toast("RLE Loaded - Click to Paste");
+    } catch (e) {
+        console.error(e);
+        toast("Invalid RLE", true);
+    }
+};
+
+function parseRLE(str) {
+    const lines = str.split('\n');
+    let data = '';
+    
+    // Strip headers/comments
+    for (let line of lines) {
+        line = line.trim();
+        if (line.startsWith('#') || line.startsWith('x =')) continue;
+        data += line;
+    }
+
+    const coords = [];
+    let x = 0, y = 0;
+    let count = 0;
+
+    for (let i = 0; i < data.length; i++) {
+        const char = data[i];
+        
+        if (char >= '0' && char <= '9') {
+            count = count * 10 + parseInt(char);
+        } else if (char === 'b') { // Dead cell
+            x += (count || 1);
+            count = 0;
+        } else if (char === 'o') { // Live cell
+            const run = count || 1;
+            for (let k = 0; k < run; k++) {
+                coords.push([x + k, y]);
+            }
+            x += run;
+            count = 0;
+        } else if (char === '$') { // Newline
+            y += (count || 1);
+            x = 0;
+            count = 0;
+        } else if (char === '!') { // End
+            break;
+        }
+    }
+    return coords;
+}
+
+// Init from URL
+function initFromURL() {
+    if (!window.location.hash) return;
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    
+    const x = parseInt(params.get('x'));
+    const y = parseInt(params.get('y'));
+    const z = parseInt(params.get('z'));
+
+    if (!isNaN(z)) actions.setZoom(z);
+    if (!isNaN(x) && !isNaN(y)) {
+        ui.viewX = x;
+        ui.viewY = y;
+        // Delay slightly to ensure worker is ready, though postMessage buffer handles it
+        ui.worker.postMessage({
+            type: 'viewportMove',
+            payload: { x, y }
+        });
+        toast(`Jumped to (${x}, ${y})`);
+    }
+}
+initFromURL();
+
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;

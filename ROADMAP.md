@@ -52,16 +52,17 @@ This document outlines the strategic development plan for the Game of Life WebUI
     - Decouple simulation coordinates from display coordinates.
     - Implement Pan (drag) and Zoom (scale) in UI.
     - Worker renders only the visible viewport to send to UI.
-- [ ] **Standard Formats**
-    - Support RLE import/export.
+- [x] **Standard Formats**
+    - [x] Support RLE import/export.
 
 ## Phase 5: Polish & Community Features
 **Goal:** Make the tool shareable and robust.
 
-- [ ] **URL Sharing**: Encode pattern/viewport in URL hash.
-- [ ] **RLE Support**: Parse standard Run Length Encoded files.
+- [x] **URL Sharing**: Encode pattern/viewport in URL hash.
+- [x] **RLE Support**: Parse standard Run Length Encoded files.
 - [ ] **Touch Support**: Better gestures for mobile/tablet.
 
 ## Current Todo List
-- [ ] Implement RLE Parser.
-- [ ] Add "Center View" button (0,0).
+- [x] Implement RLE Parser.
+- [x] Add "Center View" button (0,0).
+- [x] Add URL Sharing button.
