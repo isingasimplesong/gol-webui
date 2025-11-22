@@ -27,8 +27,12 @@ class UI {
         this.ctx = canvas.getContext('2d', { alpha: false });
         this.cols = 0;
         this.rows = 0;
-        this.stride = 0; // 32-bit words per row
-        this.lastGrid = null; // Uint32Array
+        this.stride = 0; 
+        this.lastGrid = null;
+        
+        // Viewport State
+        this.viewX = 0;
+        this.viewY = 0;
         
         // Worker
         this.worker = new Worker('worker.js');
@@ -36,7 +40,7 @@ class UI {
 
         // State
         this.isRunning = false;
-        this.mouse = { x: 0, y: 0, down: false };
+        this.mouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
         this.mode = 'draw';
         this.selectedPattern = 'glider';
 
@@ -56,11 +60,14 @@ class UI {
         this.rows = Math.floor(this.canvas.height / CONF.cellSize);
         this.stride = Math.ceil(this.cols / 32);
         
-        // Send new dimensions to worker
-        this.worker.postMessage({ 
-            type: 'init', 
-            payload: { cols: this.cols, rows: this.rows } 
-        });
+        // Update viewport size (preserve: true implied for init if not explicit, 
+        // but here we use 'resize' type for safety if already running)
+        if (this.worker) {
+            this.worker.postMessage({ 
+                type: 'resize', 
+                payload: { cols: this.cols, rows: this.rows } 
+            });
+        }
     }
 
     onWorkerMessage(e) {
@@ -70,20 +77,28 @@ class UI {
             this.isRunning = payload.running;
             updateStats(payload.generation, payload.pop);
             updateBtnState(this.isRunning);
-            this.draw(); // Trigger draw on update
+            this.draw(); 
         } else if (type === 'exportData') {
              this.handleExport(payload);
         }
     }
 
     idx(x, y) {
-        const cx = (x + this.cols) % this.cols;
-        const cy = (y + this.rows) % this.rows;
-        return cy * this.cols + cx;
+        // Viewport index
+        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1;
+        return y * this.cols + x;
+    }
+    
+    moveViewport(dx, dy) {
+        this.viewX -= dx;
+        this.viewY -= dy;
+        this.worker.postMessage({
+            type: 'viewportMove',
+            payload: { x: Math.round(this.viewX), y: Math.round(this.viewY) }
+        });
     }
 
     handleExport(data) {
-        // Convert TypedArray to normal array for JSON
         const exportObj = {
             w: data.w,
             h: data.h,
@@ -95,12 +110,12 @@ class UI {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `gol_packed_${Date.now()}.json`;
+        a.download = `gol_world_${Date.now()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast("Exported");
+        toast("Exported World");
     }
 
     draw() {
@@ -126,25 +141,23 @@ class UI {
             this.ctx.stroke();
         }
 
-        // Live Cells (Optimized Rendering)
+        // Live Cells
         this.ctx.fillStyle = CONF.liveColor;
         const sz = CONF.cellSize > 1 ? CONF.cellSize - 1 : 1;
 
-        // Iterate words
+        // The grid we receive IS the viewport. So we just draw it 1:1.
         for (let i = 0; i < this.lastGrid.length; i++) {
             const word = this.lastGrid[i];
-            if (word === 0) continue; // Skip empty words
+            if (word === 0) continue; 
 
-            const wordRow = Math.floor(i / this.stride); // y
-            const wordColStart = (i % this.stride) * 32; // x start
+            const wordRow = Math.floor(i / this.stride); 
+            const wordColStart = (i % this.stride) * 32; 
 
-            // Iterate bits in word
             for (let bit = 0; bit < 32; bit++) {
                 if ((word >>> bit) & 1) {
                     const x = (wordColStart + bit) * CONF.cellSize;
                     const y = wordRow * CONF.cellSize;
                     
-                    // Check bounds (padding bits might be out of view)
                     if (x < this.canvas.width && y < this.canvas.height) {
                         this.ctx.fillRect(x, y, sz, sz);
                     }
@@ -176,7 +189,7 @@ class UI {
 }
 
 /**
- * Interaction & Binding
+ * Interaction
  */
 const canvas = document.getElementById('grid');
 const ui = new UI(canvas);
@@ -221,7 +234,7 @@ const actions = {
     }
 };
 
-// Button Bindings
+// Bindings
 document.getElementById('panel-toggle').onclick = actions.toggleSidebar;
 document.getElementById('btn-play').onclick = actions.togglePlay;
 document.getElementById('btn-step').onclick = actions.step;
@@ -229,14 +242,8 @@ document.getElementById('btn-rev-step').onclick = actions.reverse;
 document.getElementById('btn-clear').onclick = actions.clear;
 document.getElementById('btn-rand').onclick = actions.randomize;
 
-document.getElementById('speed-range').oninput = (e) => {
-    actions.setFps(parseInt(e.target.value));
-};
-
-document.getElementById('zoom-range').oninput = (e) => {
-    actions.setZoom(parseInt(e.target.value));
-};
-
+document.getElementById('speed-range').oninput = (e) => actions.setFps(parseInt(e.target.value));
+document.getElementById('zoom-range').oninput = (e) => actions.setZoom(parseInt(e.target.value));
 document.getElementById('density-range').oninput = (e) => {
     document.getElementById('density-label').innerText = `${e.target.value}%`;
 };
@@ -254,7 +261,6 @@ document.getElementById('pattern-select').onchange = (e) => {
     CURRENT_PATTERNS[ui.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[ui.selectedPattern]));
     document.querySelector('[data-mode="paste"]').click();
 };
-
 document.getElementById('btn-rotate').onclick = actions.rotate;
 
 function rotateCurrentPattern() {
@@ -272,19 +278,54 @@ function rotateCurrentPattern() {
     toast("Rotated");
 }
 
+// Mouse Input
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
-    ui.mouse.x = e.clientX - rect.left;
-    ui.mouse.y = e.clientY - rect.top;
-    if (ui.mouse.down) applyTool();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    ui.mouse.x = x;
+    ui.mouse.y = y;
+
+    if (ui.mouse.down) {
+        if (ui.mode === 'move') {
+            const dx = (x - ui.mouse.lastX) / CONF.cellSize;
+            const dy = (y - ui.mouse.lastY) / CONF.cellSize;
+            ui.moveViewport(dx, dy);
+        } else {
+            applyTool();
+        }
+    }
+    
+    ui.mouse.lastX = x;
+    ui.mouse.lastY = y;
 });
-canvas.addEventListener('mousedown', e => { ui.mouse.down = true; applyTool(); });
+
+canvas.addEventListener('mousedown', e => { 
+    ui.mouse.down = true; 
+    ui.mouse.lastX = ui.mouse.x;
+    ui.mouse.lastY = ui.mouse.y;
+    if (ui.mode !== 'move') applyTool(); 
+});
 window.addEventListener('mouseup', () => { ui.mouse.down = false; });
+
+// Wheel Zoom
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = Math.sign(e.deltaY) * -1;
+    const range = document.getElementById('zoom-range');
+    let val = parseInt(range.value) + delta;
+    val = Math.max(range.min, Math.min(range.max, val));
+    range.value = val;
+    actions.setZoom(val);
+}, { passive: false });
 
 function applyTool() {
     const x = Math.floor(ui.mouse.x / CONF.cellSize);
     const y = Math.floor(ui.mouse.y / CONF.cellSize);
-    const idx = ui.idx(x,y); // This is flat index (y * cols + x)
+    const idx = ui.idx(x,y);
+
+    if (idx === -1) return;
 
     if (ui.mode === 'draw') {
         ui.worker.postMessage({ type: 'setCell', payload: { idx, val: 1 }});
@@ -295,7 +336,7 @@ function applyTool() {
         const updates = [];
         for (let [px, py] of p) {
             const targetIdx = ui.idx(x + px, y + py);
-            updates.push({ idx: targetIdx, val: 1 });
+            if (targetIdx !== -1) updates.push({ idx: targetIdx, val: 1 });
         }
         ui.worker.postMessage({ type: 'setCells', payload: { updates }});
         ui.mouse.down = false; 
@@ -308,7 +349,7 @@ window.addEventListener('keydown', (e) => {
     switch(e.key) {
         case ' ': e.preventDefault(); actions.togglePlay(); break;
         case 'ArrowRight': actions.step(); break;
-        case 'ArrowLeft': actions.reverse(); break;
+        case 'ArrowLeft': actions.reverse(); break; // Will do nothing for now
         case 'c': case 'C': actions.clear(); break;
         case 'r': case 'R': actions.rotate(); break;
         case '[': {
@@ -337,11 +378,14 @@ const toast = (txt, isError = false) => {
     setTimeout(() => el.style.opacity = 0, 2000);
 };
 
-// Storage Logic
+// IO
 document.getElementById('btn-save').onclick = () => {
     const name = document.getElementById('save-name').value || 'Untitled';
     if (!ui.lastGrid) return;
     
+    // Saving only viewport for LocalStorage (Simpler for now)
+    // or we could ask worker to export full world?
+    // Let's just save viewport for browser storage to keep it fast.
     const state = {
         timestamp: Date.now(),
         w: ui.cols,
@@ -351,7 +395,7 @@ document.getElementById('btn-save').onclick = () => {
     };
     try {
         localStorage.setItem('gol_' + name, JSON.stringify(state));
-        toast(`Saved "${name}"`);
+        toast(`Saved View "${name}"`);
     } catch (e) {
         toast("Storage Full!", true);
     }
@@ -386,56 +430,10 @@ function loadFromJSON(jsonString) {
         const state = JSON.parse(jsonString);
         if (!state.w || !state.h || !state.data) throw new Error("Invalid Format");
 
-        let bufferToSend;
-
-        // Check if data is packed (Uint32) or legacy (Uint8)
-        if (state.packed) {
-            // Exact match on dimensions?
-            if (state.w === ui.cols && state.h === ui.rows) {
-                bufferToSend = new Uint32Array(state.data);
-            } else {
-                // Harder to resize packed data on the fly in UI.
-                // For now, we just fail or reset.
-                // Or we can implement a basic resize here.
-                toast("Dim Mismatch", true);
-                return;
-            }
-        } else {
-            // Legacy import (unpacked 0/1)
-            // We must pack it before sending to worker
-            // Or implement logic to pack.
-            // Since we don't want to duplicate packing logic, let's just send 
-            // a message to worker saying "loadLegacy"?
-            // But worker expects Uint32Array.
-            
-            // Let's implement a simple packer here for compatibility
-            const stride = Math.ceil(state.w / 32);
-            const packed = new Uint32Array(stride * state.h);
-            
-            for(let i=0; i<state.data.length; i++) {
-                if(state.data[i]) {
-                    const x = i % state.w;
-                    const y = Math.floor(i / state.w);
-                    
-                    // Handle resize/centering if needed
-                    // For now assume direct mapping or center
-                    const destX = x + Math.floor((ui.cols - state.w)/2);
-                    const destY = y + Math.floor((ui.rows - state.h)/2);
-                    
-                    if (destX >= 0 && destX < ui.cols && destY >= 0 && destY < ui.rows) {
-                         const destStride = Math.ceil(ui.cols / 32);
-                         const wordIdx = destY * destStride + Math.floor(destX / 32);
-                         const bit = destX % 32;
-                         packed[wordIdx] |= (1 << bit);
-                    }
-                }
-            }
-            bufferToSend = packed;
-        }
-        
+        // We send raw data to worker, it handles placement
         ui.worker.postMessage({ 
             type: 'load', 
-            payload: bufferToSend 
+            payload: state 
         });
         toast("Loaded");
     } catch (e) {

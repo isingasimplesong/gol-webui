@@ -44,12 +44,16 @@ This document outlines the strategic development plan for the Game of Life WebUI
 ## Phase 4: The "Infinite" Vision
 **Goal:** Support the true mathematical concept of an infinite grid.
 
-- [ ] **Sparse Storage**
-    - Replace fixed arrays with Hash Maps or Quadtrees (Hashlife).
+- [ ] **Sparse Storage (Chunking)**
+    - Implement `Map<Coordinate, Chunk>` storage.
+    - Use 32x32 bitwise chunks (fitting perfectly into SWAR logic).
+    - Dynamic memory management (garbage collect empty chunks).
 - [ ] **Viewport Management**
-    - Implement Pan and Zoom controls.
+    - Decouple simulation coordinates from display coordinates.
+    - Implement Pan (drag) and Zoom (scale) in UI.
+    - Worker renders only the visible viewport to send to UI.
 - [ ] **Standard Formats**
-    - Support RLE and Life 1.05 file import/export.
+    - Support RLE import/export.
 
 ## Current Todo List (Immediate)
 
