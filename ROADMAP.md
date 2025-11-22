@@ -5,13 +5,14 @@ This document outlines the strategic development plan for the Game of Life WebUI
 ## Phase 1: UX & Input Efficiency (The "Vim" Treatment)
 **Goal:** Make the interface faster to use without touching the core engine.
 
-- [ ] **Keyboard Shortcuts**
+- [x] **Keyboard Shortcuts**
     - `Space`: Pause/Play
     - `Right Arrow`: Step forward
     - `Left Arrow`: Step backward
     - `R`: Rotate pattern
     - `C`: Clear grid
     - `[` / `]`: Control simulation speed
+    - `Ctrl + /`: Help Menu
 - [ ] **Responsive Canvas**
     - Implement non-destructive resizing (retain grid state when window resizes).
 - [ ] **Ghost Pattern Preview**

@@ -172,22 +172,30 @@ function updateBtnState(running) {
     btn.classList.toggle('active', running);
 }
 
-// Controls
-document.getElementById('btn-play').onclick = () => {
-    ui.worker.postMessage({ type: ui.isRunning ? 'stop' : 'start' });
+// Controls logic (reusable)
+const actions = {
+    togglePlay: () => ui.worker.postMessage({ type: ui.isRunning ? 'stop' : 'start' }),
+    step: () => ui.worker.postMessage({ type: 'step' }),
+    reverse: () => ui.worker.postMessage({ type: 'reverse' }),
+    clear: () => ui.worker.postMessage({ type: 'clear' }),
+    randomize: () => ui.worker.postMessage({ type: 'randomize' }),
+    setFps: (val) => {
+        document.getElementById('speed-range').value = val;
+        document.getElementById('speed-label').innerText = `${val} FPS`;
+        ui.worker.postMessage({ type: 'setFps', payload: val });
+    },
+    rotate: () => {
+        rotateCurrentPattern();
+        document.querySelector('[data-mode="paste"]').click();
+    }
 };
-document.getElementById('btn-step').onclick = () => {
-    ui.worker.postMessage({ type: 'step' });
-};
-document.getElementById('btn-rev-step').onclick = () => {
-    ui.worker.postMessage({ type: 'reverse' });
-};
-document.getElementById('btn-clear').onclick = () => {
-    ui.worker.postMessage({ type: 'clear' });
-};
-document.getElementById('btn-rand').onclick = () => {
-    ui.worker.postMessage({ type: 'randomize' });
-};
+
+// Button Bindings
+document.getElementById('btn-play').onclick = actions.togglePlay;
+document.getElementById('btn-step').onclick = actions.step;
+document.getElementById('btn-rev-step').onclick = actions.reverse;
+document.getElementById('btn-clear').onclick = actions.clear;
+document.getElementById('btn-rand').onclick = actions.randomize;
 
 document.getElementById('speed-range').oninput = (e) => {
     const fps = parseInt(e.target.value);
@@ -210,10 +218,7 @@ document.getElementById('pattern-select').onchange = (e) => {
     document.querySelector('[data-mode="paste"]').click();
 };
 
-document.getElementById('btn-rotate').onclick = () => {
-    rotateCurrentPattern();
-    document.querySelector('[data-mode="paste"]').click();
-};
+document.getElementById('btn-rotate').onclick = actions.rotate;
 
 function rotateCurrentPattern() {
     const p = CURRENT_PATTERNS[ui.selectedPattern];
@@ -261,6 +266,56 @@ function applyTool() {
     }
 }
 
+// Keyboard Shortcuts
+window.addEventListener('keydown', (e) => {
+    // Ignore if focused on input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    switch(e.key) {
+        case ' ':
+            e.preventDefault();
+            actions.togglePlay();
+            break;
+        case 'ArrowRight':
+            actions.step();
+            break;
+        case 'ArrowLeft':
+            actions.reverse();
+            break;
+        case 'c':
+        case 'C':
+            actions.clear();
+            break;
+        case 'r':
+        case 'R':
+            actions.rotate();
+            break;
+        case '[':
+            {
+                const current = parseInt(document.getElementById('speed-range').value);
+                actions.setFps(Math.max(1, current - 5));
+            }
+            break;
+        case ']':
+            {
+                const current = parseInt(document.getElementById('speed-range').value);
+                actions.setFps(Math.min(60, current + 5));
+            }
+            break;
+        case '/':
+            if (e.ctrlKey) toggleHelp();
+            break;
+        case 'Escape':
+            document.getElementById('help-modal').classList.remove('show');
+            break;
+    }
+});
+
+function toggleHelp() {
+    const el = document.getElementById('help-modal');
+    el.classList.toggle('show');
+}
+
 // I/O
 const toast = (txt, isError = false) => {
     const el = document.getElementById('msg');
@@ -272,9 +327,6 @@ const toast = (txt, isError = false) => {
 
 document.getElementById('btn-save').onclick = () => {
     const name = document.getElementById('save-name').value || 'Untitled';
-    // Request data from worker for saving? 
-    // Actually, we have ui.lastGrid which is the current state!
-    // We just need to ensure we have dimensions.
     if (!ui.lastGrid) return;
     
     const state = {
@@ -320,17 +372,7 @@ function loadFromJSON(jsonString) {
         const state = JSON.parse(jsonString);
         if (!state.w || !state.h || !state.data) throw new Error("Invalid Format");
 
-        // Remap logic needs to happen here or in worker?
-        // Easier to do in UI thread then send clean buffer to worker
-        // OR just send the whole blob to worker and let it deal with it.
-        // Worker has 'load' type.
-        
-        // Let's map it here to match current UI size
-        // This duplicates logic but keeps worker "dumb" about resizing centering
-        // Actually, let's reuse the logic I wrote before, but apply it to a new buffer
-        
         const newGrid = new Uint8Array(ui.cols * ui.rows);
-        const limit = Math.min(state.data.length, newGrid.length);
         
         if (state.w === ui.cols && state.h === ui.rows) {
              newGrid.set(state.data);
@@ -353,7 +395,7 @@ function loadFromJSON(jsonString) {
         
         ui.worker.postMessage({ 
             type: 'load', 
-            payload: newGrid // Send cleaned, resized buffer
+            payload: newGrid 
         });
         toast("Loaded");
     } catch (e) {
