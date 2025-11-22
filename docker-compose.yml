@@ -1,0 +1,10 @@
+services:
+  game-of-life:
+    build: .
+    container_name: gol_webui
+    ports:
+      - "8088:80"
+    restart: unless-stopped
+    # Optimization: Mount volume for development so you can edit index.html live
+    volumes:
+      - ./public:/usr/share/nginx/html
