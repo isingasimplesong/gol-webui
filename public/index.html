@@ -8,7 +8,26 @@
 </head>
 <body>
 
-    <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
+<main id="canvas-container">
+    <canvas id="grid"></canvas>
+    <div id="msg" class="overlay-msg">Saved</div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>> KEYBOARD_SHORTCUTS</h2>
+            <div class="key-list">
+                <div class="key-item"><span>Toggle Play / Pause</span> <span class="key-bg">SPACE</span></div>
+                <div class="key-item"><span>Step Forward</span> <span class="key-bg">→</span></div>
+                <div class="key-item"><span>Step Backward</span> <span class="key-bg">←</span></div>
+                <div class="key-item"><span>Clear Grid</span> <span class="key-bg">C</span></div>
+                <div class="key-item"><span>Rotate Pattern</span> <span class="key-bg">R</span></div>
+                <div class="key-item"><span>Decrease Speed</span> <span class="key-bg">[</span></div>
+                <div class="key-item"><span>Increase Speed</span> <span class="key-bg">]</span></div>
+                <div class="key-item"><span>Toggle Sidebar</span> <span class="key-bg">TAB</span></div>
+                <div class="key-item"><span>Toggle Help</span> <span class="key-bg">Ctrl + /</span></div>
+            </div>
+            <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
         </div>
     </div>
 </main>
