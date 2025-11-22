@@ -35,7 +35,7 @@ This document outlines the strategic development plan for the Game of Life WebUI
     - Switch from `Uint8Array` to `Uint32Array` (Packed Grid).
     - Reduce memory usage by 8x.
     - Optimize `postMessage` using Transferable Objects.
-- [ ] **Bitwise Parallelism**
+- [x] **Bitwise Parallelism**
     - Implement SWAR (SIMD Within A Register) for neighbor counting (32 cells at once).
 - [ ] **WASM Backend**
     - Port core logic to Go (TinyGo) or Rust.
@@ -44,24 +44,24 @@ This document outlines the strategic development plan for the Game of Life WebUI
 ## Phase 4: The "Infinite" Vision
 **Goal:** Support the true mathematical concept of an infinite grid.
 
-- [ ] **Sparse Storage (Chunking)**
+- [x] **Sparse Storage (Chunking)**
     - Implement `Map<Coordinate, Chunk>` storage.
     - Use 32x32 bitwise chunks (fitting perfectly into SWAR logic).
     - Dynamic memory management (garbage collect empty chunks).
-- [ ] **Viewport Management**
+- [x] **Viewport Management**
     - Decouple simulation coordinates from display coordinates.
     - Implement Pan (drag) and Zoom (scale) in UI.
     - Worker renders only the visible viewport to send to UI.
 - [ ] **Standard Formats**
     - Support RLE import/export.
 
-## Current Todo List (Immediate)
+## Phase 5: Polish & Community Features
+**Goal:** Make the tool shareable and robust.
 
-- [ ] Create `worker.js` file.
-- [ ] Refactor `script.js` to offload simulation loop to worker.
-- [ ] Implement `postMessage` bridge for:
-    - `step` / `loop`
-    - `resize`
-    - `setCell` / `paste`
-    - `export` / `import`
-- [ ] Verify feature parity (History, Tools, Save/Load) after refactor.
+- [ ] **URL Sharing**: Encode pattern/viewport in URL hash.
+- [ ] **RLE Support**: Parse standard Run Length Encoded files.
+- [ ] **Touch Support**: Better gestures for mobile/tablet.
+
+## Current Todo List
+- [ ] Implement RLE Parser.
+- [ ] Add "Center View" button (0,0).
