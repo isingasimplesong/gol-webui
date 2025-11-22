@@ -193,9 +193,15 @@ const actions = {
         rotateCurrentPattern();
         document.querySelector('[data-mode="paste"]').click();
     }
+    toggleSidebar: () => {
+        document.getElementById('sidebar').classList.toggle('collapsed');
+        // Wait for transition then resize
+        setTimeout(() => ui.resize(), 350); 
+    }
 };
 
 // Button Bindings
+document.getElementById('panel-toggle').onclick = actions.toggleSidebar;
 document.getElementById('btn-play').onclick = actions.togglePlay;
 document.getElementById('btn-step').onclick = actions.step;
 document.getElementById('btn-rev-step').onclick = actions.reverse;
@@ -314,6 +320,10 @@ window.addEventListener('keydown', (e) => {
             break;
         case 'Escape':
             document.getElementById('help-modal').classList.remove('show');
+            break;
+        case 'Tab':
+            e.preventDefault();
+            actions.toggleSidebar();
             break;
     }
 });

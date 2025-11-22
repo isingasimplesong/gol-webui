@@ -8,105 +8,90 @@
 </head>
 <body>
 
-<aside>
-    <div class="header">
-        <h1>> LIFE_ENGINE</h1>
-        <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
-        <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
+    <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
+        </div>
     </div>
+</main>
 
-    <div class="controls">
-        <!-- Playback -->
-        <div class="group">
-            <div class="label">Time Control</div>
-            <div class="row">
-                <button id="btn-play">Play</button>
-                <button id="btn-step">Step +</button>
-            </div>
-            <div class="row">
-                <button id="btn-rev-step">Step -</button>
-                <button id="btn-clear" style="color: var(--error)">Kill All</button>
-            </div>
-            <input type="range" id="speed-range" min="1" max="60" value="30">
-            <div class="label" style="text-align:right" id="speed-label">30 FPS</div>
+<aside id="sidebar">
+    <button id="panel-toggle" class="panel-toggle" title="Toggle Sidebar">›</button>
+    <div class="sidebar-inner">
+        <div class="header">
+            <h1>> LIFE_ENGINE</h1>
+            <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
+            <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
         </div>
 
-        <!-- Zoom / Grid Size -->
-        <div class="group">
-            <div class="label">Zoom Level</div>
-            <input type="range" id="zoom-range" min="2" max="40" value="10">
-            <div class="label" style="text-align:right" id="zoom-label">10px</div>
-        </div>
+        <div class="controls">
+            <!-- Playback -->
+            <div class="group">
+                <div class="label">Time Control</div>
+                <div class="row">
+                    <button id="btn-play">Play</button>
+                    <button id="btn-step">Step +</button>
+                </div>
+                <div class="row">
+                    <button id="btn-rev-step">Step -</button>
+                    <button id="btn-clear" style="color: var(--error)">Kill All</button>
+                </div>
+                <input type="range" id="speed-range" min="1" max="60" value="30">
+                <div class="label" style="text-align:right" id="speed-label">30 FPS</div>
+            </div>
 
-        <!-- Tools -->
-        <div class="group">
-            <div class="label">Interaction Mode</div>
-            <div class="row">
-                <button class="tool-btn active" data-mode="draw">Draw</button>
-                <button class="tool-btn" data-mode="erase">Erase</button>
+            <!-- Zoom / Grid Size -->
+            <div class="group">
+                <div class="label">Zoom Level</div>
+                <input type="range" id="zoom-range" min="2" max="40" value="10">
+                <div class="label" style="text-align:right" id="zoom-label">10px</div>
             </div>
-            <div class="row">
-                <button class="tool-btn" data-mode="paste">Paste Pattern</button>
-                <button id="btn-rotate" title="Rotate 90°">↻</button>
-            </div>
-            <select id="pattern-select">
-                <option value="glider">Glider</option>
-                <option value="lwss">Lightweight SS</option>
-                <option value="pulsar">Pulsar</option>
-                <option value="gosper">Gosper Gun</option>
-                <option value="block">Block</option>
-                <option value="beehive">Beehive</option>
-            </select>
-        </div>
 
-        <!-- Save/Load -->
-        <div class="group">
-            <div class="label">Storage</div>
-            <div class="row">
-                <button id="btn-export">Export Disk</button>
-                <button id="btn-import-trigger">Import Disk</button>
-                <input type="file" id="file-import" accept=".json" style="display: none">
+            <!-- Tools -->
+            <div class="group">
+                <div class="label">Interaction Mode</div>
+                <div class="row">
+                    <button class="tool-btn active" data-mode="draw">Draw</button>
+                    <button class="tool-btn" data-mode="erase">Erase</button>
+                </div>
+                <div class="row">
+                    <button class="tool-btn" data-mode="paste">Paste Pattern</button>
+                    <button id="btn-rotate" title="Rotate 90°">↻</button>
+                </div>
+                <select id="pattern-select">
+                    <option value="glider">Glider</option>
+                    <option value="lwss">Lightweight SS</option>
+                    <option value="pulsar">Pulsar</option>
+                    <option value="gosper">Gosper Gun</option>
+                    <option value="block">Block</option>
+                    <option value="beehive">Beehive</option>
+                </select>
             </div>
-            <div class="label" style="margin-top: 10px;">Browser Memory</div>
-            <input type="text" id="save-name" placeholder="Pattern Name">
-            <div class="row">
-                <button id="btn-save">Save</button>
-                <button id="btn-load">Load</button>
-            </div>
-        </div>
 
-        <!-- Random -->
-        <div class="group">
-            <div class="label">Entropy</div>
-            <div class="row">
-                <button id="btn-rand">Randomize</button>
+            <!-- Save/Load -->
+            <div class="group">
+                <div class="label">Storage</div>
+                <div class="row">
+                    <button id="btn-export">Export Disk</button>
+                    <button id="btn-import-trigger">Import Disk</button>
+                    <input type="file" id="file-import" accept=".json" style="display: none">
+                </div>
+                <div class="label" style="margin-top: 10px;">Browser Memory</div>
+                <input type="text" id="save-name" placeholder="Pattern Name">
+                <div class="row">
+                    <button id="btn-save">Save</button>
+                    <button id="btn-load">Load</button>
+                </div>
+            </div>
+
+            <!-- Random -->
+            <div class="group">
+                <div class="label">Entropy</div>
+                <div class="row">
+                    <button id="btn-rand">Randomize</button>
+                </div>
             </div>
         </div>
     </div>
 </aside>
-
-<main id="canvas-container">
-    <canvas id="grid"></canvas>
-    <div id="msg" class="overlay-msg">Saved</div>
-
-    <!-- Help Modal -->
-    <div id="help-modal" class="modal-overlay">
-        <div class="modal">
-            <h2>> KEYBOARD_SHORTCUTS</h2>
-            <div class="key-list">
-                <div class="key-item"><span>Toggle Play / Pause</span> <span class="key-bg">SPACE</span></div>
-                <div class="key-item"><span>Step Forward</span> <span class="key-bg">→</span></div>
-                <div class="key-item"><span>Step Backward</span> <span class="key-bg">←</span></div>
-                <div class="key-item"><span>Clear Grid</span> <span class="key-bg">C</span></div>
-                <div class="key-item"><span>Rotate Pattern</span> <span class="key-bg">R</span></div>
-                <div class="key-item"><span>Decrease Speed</span> <span class="key-bg">[</span></div>
-                <div class="key-item"><span>Increase Speed</span> <span class="key-bg">]</span></div>
-                <div class="key-item"><span>Toggle Help</span> <span class="key-bg">Ctrl + /</span></div>
-            </div>
-            <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
-        </div>
-    </div>
-</main>
 
 <script src="script.js"></script>
 </body>

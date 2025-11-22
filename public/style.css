@@ -14,9 +14,40 @@ body {
 
 /* Sidebar UI */
 aside {
-    width: 320px; background: var(--bg-light); display: flex; flex-direction: column;
-    border-right: 1px solid var(--bg-lighter); z-index: 10;
-    box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+    width: 320px; background: var(--bg-light); 
+    border-left: 1px solid var(--bg-lighter); z-index: 10;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.2);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    display: flex; flex-direction: column;
+}
+
+aside.collapsed { width: 0; }
+
+.sidebar-inner {
+    width: 320px; /* Fixed width content to prevent squashing */
+    display: flex; flex-direction: column; height: 100%;
+    overflow: hidden;
+}
+
+.panel-toggle {
+    position: absolute;
+    left: -24px; top: 50%; transform: translateY(-50%);
+    width: 24px; height: 64px;
+    background: var(--bg-light);
+    border: 1px solid var(--bg-lighter);
+    border-right: none;
+    border-radius: 4px 0 0 4px;
+    color: var(--primary);
+    font-family: inherit; font-weight: bold; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; z-index: 20;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+}
+.panel-toggle:hover { background: var(--bg-lighter); color: var(--text); }
+
+aside.collapsed .panel-toggle {
+    /* Flip arrow when collapsed? Or just leave as opener */
 }
 
 .header { padding: 20px; border-bottom: 1px solid var(--bg-lighter); }
@@ -44,7 +75,7 @@ button.active { background: var(--warning); color: var(--bg); font-weight: bold;
 input[type="range"] { width: 100%; accent-color: var(--primary); cursor: ew-resize; }
 
 /* Canvas Area */
-main { flex: 1; position: relative; cursor: crosshair; overflow: hidden; }
+main { flex: 1; position: relative; cursor: crosshair; overflow: hidden; order: -1; } /* Order -1 to be left of aside */
 canvas { display: block; image-rendering: pixelated; }
 
 .overlay-msg {
