@@ -34,7 +34,7 @@ self.onmessage = function(e) {
             viewH = payload.rows;
             // If first run, maybe seed center?
             if (chunks.size === 0 && !payload.preserve) {
-                randomize(0.25); 
+                randomize(0.25, true); 
             }
             sendUpdate();
             break;
@@ -417,20 +417,26 @@ function step() {
             
             const s01 = s0 ^ s1; const c01 = s0 & s1;
             const s23 = s2 ^ s3; const c23 = s2 & s3;
-            const sum1_0 = s01 ^ s23; 
-            const carry_s = (s01 & s23) | c01 | c23;
-            
+            const total0 = s01 ^ s23; 
+            const carry_s_raw = s01 & s23;
+
+            // Sum Group A (carries from bit 0 stage)
+            const sum_A = c01 ^ c23 ^ carry_s_raw;
+            const carry_A = (c01 & c23) | (c01 & carry_s_raw) | (c23 & carry_s_raw);
+
+            // Sum Group B (carries from input stage)
             const c01_x = c0 ^ c1; const c01_a = c0 & c1;
             const c23_x = c2 ^ c3; const c23_a = c2 & c3;
-            const sum2_0 = c01_x ^ c23_x;
-            const carry_c = (c01_x & c23_x) | c01_a | c23_a;
-            
-            const total0 = sum1_0;
-            const total1 = carry_s ^ sum2_0;
-            const carry_total1 = carry_s & sum2_0;
-            const total2 = carry_c ^ carry_total1;
+            const sum_B = c01_x ^ c23_x;
+            const carry_B = (c01_x & c23_x) | c01_a | c23_a;
+
+            // Final Sums
+            const total1 = sum_A ^ sum_B;
+            const carry_AB = sum_A & sum_B;
+            const total2 = carry_A ^ carry_B ^ carry_AB;
             
             const two_or_three = (~total2) & total1;
+
             const nextState = two_or_three & (total0 | c_row);
             
             if (nextState !== 0) active = true;

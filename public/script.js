@@ -45,15 +45,15 @@ class UI {
         this.selectedPattern = 'glider';
 
         // Init
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
+        this.resize(true);
+        window.addEventListener('resize', () => this.resize(false));
         
         // UI Loop
         this.renderLoop = this.renderLoop.bind(this);
         requestAnimationFrame(this.renderLoop);
     }
 
-    resize() {
+    resize(isInit = false) {
         this.canvas.width = this.canvas.parentElement.clientWidth;
         this.canvas.height = this.canvas.parentElement.clientHeight;
         this.cols = Math.floor(this.canvas.width / CONF.cellSize);
@@ -64,7 +64,7 @@ class UI {
         // but here we use 'resize' type for safety if already running)
         if (this.worker) {
             this.worker.postMessage({ 
-                type: 'resize', 
+                type: isInit ? 'init' : 'resize', 
                 payload: { cols: this.cols, rows: this.rows } 
             });
         }
@@ -412,6 +412,8 @@ function initFromURL() {
 }
 initFromURL();
 
+// Mouse move handler to track cursor and apply tools / panning
+canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
