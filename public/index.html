@@ -12,18 +12,6 @@
     <canvas id="grid"></canvas>
     <div id="msg" class="overlay-msg">Saved</div>
 
-    <!-- RLE Import Modal -->
-    <div id="rle-modal" class="modal-overlay">
-        <div class="modal">
-            <h2>> IMPORT_RLE</h2>
-            <textarea id="rle-input" placeholder="Paste RLE code here... (e.g. bo$2bo$3o!)" rows="10" style="width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 10px; font-family: monospace;"></textarea>
-            <div class="row" style="margin-top: 10px; justify-content: flex-end; gap: 10px;">
-                <button id="btn-rle-cancel">Cancel</button>
-                <button id="btn-rle-load">Load Pattern</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Help Modal -->
     <div id="help-modal" class="modal-overlay">
         <div class="modal">
@@ -95,7 +83,6 @@
                 </div>
                 <div class="row">
                     <button class="tool-btn" data-mode="paste">Paste Pattern</button>
-                    <button id="btn-import-rle" title="Import from Text (RLE)">Import RLE</button>
                     <button id="btn-rotate" title="Rotate 90°">↻</button>
                 </div>
                 <select id="pattern-select">
@@ -108,28 +95,19 @@
                 </select>
             </div>
 
-            <!-- Save/Load -->
+            <!-- Import/Export -->
             <div class="group">
-                <div class="label">Storage</div>
+                <div class="label">File</div>
                 <div class="row">
-                    <button id="btn-export">Export Disk</button>
-                    <button id="btn-import-trigger">Import Disk</button>
-                    <input type="file" id="file-import" accept=".json" style="display: none">
-                </div>
-                <div class="row">
-                     <button id="btn-share" title="Copy Link to Clipboard">Share Link 🔗</button>
-                </div>
-                <div class="label" style="margin-top: 10px;">Browser Memory</div>
-                <input type="text" id="save-name" placeholder="Pattern Name">
-                <div class="row">
-                    <button id="btn-save">Save</button>
-                    <button id="btn-load">Load</button>
+                    <button id="btn-export">Export</button>
+                    <button id="btn-import-trigger">Import</button>
+                    <input type="file" id="file-import" accept=".json,.rle,.txt,.mc" style="display: none">
                 </div>
             </div>
 
-            <!-- Random -->
+            <!-- Randomize -->
             <div class="group">
-                <div class="label">Entropy</div>
+                <div class="label">Density</div>
                 <input type="range" id="density-range" min="5" max="95" value="25">
                 <div class="label" style="text-align:right" id="density-label">25%</div>
                 <div class="row">

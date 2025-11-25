@@ -36,9 +36,9 @@ self.onmessage = function(e) {
             // Payload is viewport dimensions now
             viewW = payload.cols;
             viewH = payload.rows;
-            // If first run, maybe seed center?
+            // If first run, seed with interesting default pattern
             if (chunks.size === 0 && !payload.preserve) {
-                randomize(0.25, true); 
+                seedDefaultPattern();
             }
             sendUpdate();
             break;
@@ -238,73 +238,140 @@ function randomize(density = 0.25, viewportOnly = false) {
     }
 }
 
-function exportWorld() {
-    // 1. Find bounding box
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    let empty = true;
+// Default pattern: Gosper glider gun + some oscillators
+function seedDefaultPattern() {
+    // Gosper glider gun (classic, fires gliders SE)
+    const gosper = [
+        [1,5],[1,6],[2,5],[2,6],  // Left block
+        [11,5],[11,6],[11,7],[12,4],[12,8],[13,3],[13,9],[14,3],[14,9],
+        [15,6],[16,4],[16,8],[17,5],[17,6],[17,7],[18,6],
+        [21,3],[21,4],[21,5],[22,3],[22,4],[22,5],[23,2],[23,6],
+        [25,1],[25,2],[25,6],[25,7],
+        [35,3],[35,4],[36,3],[36,4]  // Right block
+    ];
     
-    for (let [key, chunk] of chunks) {
-        // Verify chunk isn't empty
-        let hasLife = false;
-        for(let w of chunk) if (w !== 0) { hasLife = true; break; }
-        if(!hasLife) continue;
-        
-        const [cx, cy] = key.split(',').map(Number);
-        const x0 = cx * CHUNK_SIZE;
-        const y0 = cy * CHUNK_SIZE;
-        
-        minX = Math.min(minX, x0);
-        maxX = Math.max(maxX, x0 + CHUNK_SIZE);
-        minY = Math.min(minY, y0);
-        maxY = Math.max(maxY, y0 + CHUNK_SIZE);
-        empty = false;
+    // Place gun at center-ish of viewport
+    const ox = 5;
+    const oy = 5;
+    for (let [x, y] of gosper) {
+        setCell(ox + x, oy + y, 1);
     }
     
-    if (empty) return; // Nothing to export
+    // Add a pulsar (period-3 oscillator) offset to the right
+    const pulsar = [
+        [2,4],[2,5],[2,6],[2,10],[2,11],[2,12],
+        [4,2],[4,7],[4,9],[4,14],
+        [5,2],[5,7],[5,9],[5,14],
+        [6,2],[6,7],[6,9],[6,14],
+        [7,4],[7,5],[7,6],[7,10],[7,11],[7,12],
+        [9,4],[9,5],[9,6],[9,10],[9,11],[9,12],
+        [10,2],[10,7],[10,9],[10,14],
+        [11,2],[11,7],[11,9],[11,14],
+        [12,2],[12,7],[12,9],[12,14],
+        [14,4],[14,5],[14,6],[14,10],[14,11],[14,12]
+    ];
     
-    // 2. Serialize to flat array relative to minX, minY
-    const w = maxX - minX;
-    const h = maxY - minY;
-    const stride = Math.ceil(w / 32);
-    const data = new Uint32Array(stride * h);
+    const px = 50;
+    const py = 20;
+    for (let [x, y] of pulsar) {
+        setCell(px + x, py + y, 1);
+    }
     
-    // Iterate all cells in bounding box? Or iterate chunks?
-    // Iterating chunks is faster.
+    // Add a pentadecathlon (period-15) below
+    const pentadecathlon = [
+        [0,1],[1,0],[1,2],[2,0],[2,2],[3,1],[4,1],[5,1],[6,1],
+        [7,0],[7,2],[8,0],[8,2],[9,1]
+    ];
+    
+    const pdx = 20;
+    const pdy = 30;
+    for (let [x, y] of pentadecathlon) {
+        setCell(pdx + x, pdy + y, 1);
+    }
+}
+
+function exportWorld() {
+    // 1. Find bounding box by scanning all live cells
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const liveCells = [];
+    
     for (let [key, chunk] of chunks) {
         const [cx, cy] = key.split(',').map(Number);
         const x0 = cx * CHUNK_SIZE;
         const y0 = cy * CHUNK_SIZE;
         
-        // Check overlap
-        // Simple Copy:
-        for(let ly=0; ly<CHUNK_SIZE; ly++) {
-            const globalY = y0 + ly;
-            const targetY = globalY - minY;
-            if (targetY < 0 || targetY >= h) continue;
-            
-            // Row word
+        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
             const word = chunk[ly];
             if (word === 0) continue;
             
-            // We have 32 bits at (x0, globalY).
-            // They map to targetX = x0 - minX.
-            // Since x0 is always multiple of 32, and minX is multiple of 32 (since it comes from chunk coord),
-            // Alignment is preserved!
-            // wait, minX = cx * 32. So yes, minX is 32-aligned.
-            // So we can just copy word to data?
-            // destination word index:
+            for (let lx = 0; lx < 32; lx++) {
+                if ((word >>> lx) & 1) {
+                    const gx = x0 + lx;
+                    const gy = y0 + ly;
+                    liveCells.push([gx, gy]);
+                    minX = Math.min(minX, gx);
+                    maxX = Math.max(maxX, gx);
+                    minY = Math.min(minY, gy);
+                    maxY = Math.max(maxY, gy);
+                }
+            }
+        }
+    }
+    
+    if (liveCells.length === 0) return;
+    
+    // 2. Normalize to (0,0) origin
+    const w = maxX - minX + 1;
+    const h = maxY - minY + 1;
+    
+    // Build a grid for RLE encoding
+    const grid = new Array(h).fill(null).map(() => new Array(w).fill(false));
+    for (let [x, y] of liveCells) {
+        grid[y - minY][x - minX] = true;
+    }
+    
+    // 3. Generate RLE
+    let rle = `#C Exported from Life Engine\nx = ${w}, y = ${h}, rule = B3/S23\n`;
+    
+    for (let y = 0; y < h; y++) {
+        let x = 0;
+        let rowRle = '';
+        
+        while (x < w) {
+            const alive = grid[y][x];
+            let count = 1;
             
-            const targetX = x0 - minX;
-            const wordOffset = Math.floor(targetX / 32);
+            // Count run length
+            while (x + count < w && grid[y][x + count] === alive) {
+                count++;
+            }
             
-            // Direct copy
-            data[targetY * stride + wordOffset] = word;
+            // Skip trailing dead cells
+            if (!alive && x + count >= w) {
+                break;
+            }
+            
+            const char = alive ? 'o' : 'b';
+            rowRle += (count > 1 ? count : '') + char;
+            x += count;
+        }
+        
+        // End of row: $ or ! for last row
+        if (y < h - 1) {
+            rle += rowRle + '$';
+        } else {
+            rle += rowRle + '!';
+        }
+        
+        // Line wrap for readability (every ~70 chars)
+        if (rle.length > 70 && y < h - 1) {
+            rle += '\n';
         }
     }
     
     self.postMessage({
         type: 'exportData',
-        payload: { w, h, data, packed: true }
+        payload: { rle, w, h }
     });
 }
 

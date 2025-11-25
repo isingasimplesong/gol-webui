@@ -99,23 +99,16 @@ class UI {
     }
 
     handleExport(data) {
-        const exportObj = {
-            w: data.w,
-            h: data.h,
-            packed: true,
-            data: Array.from(data.data) 
-        };
-        
-        const blob = new Blob([JSON.stringify(exportObj)], {type: 'application/json'});
+        const blob = new Blob([data.rle], {type: 'text/plain'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `gol_world_${Date.now()}.json`;
+        a.download = `pattern_${Date.now()}.rle`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast("Exported World");
+        toast("Exported RLE");
     }
 
     draw() {
@@ -240,26 +233,12 @@ const actions = {
             payload: { x: 0, y: 0 }
         });
         toast("View Centered");
-    },
-    share: () => {
-        const params = new URLSearchParams();
-        params.set('x', Math.round(ui.viewX));
-        params.set('y', Math.round(ui.viewY));
-        params.set('z', CONF.cellSize);
-        
-        const url = `${window.location.origin}${window.location.pathname}#${params.toString()}`;
-        window.history.replaceState(null, null, `#${params.toString()}`);
-        
-        navigator.clipboard.writeText(url).then(() => {
-            toast("Link Copied! 🔗");
-        }).catch(() => toast("Copy Failed", true));
     }
 };
 
 // Bindings
 document.getElementById('panel-toggle').onclick = actions.toggleSidebar;
 document.getElementById('btn-center').onclick = actions.recenter;
-document.getElementById('btn-share').onclick = actions.share;
 document.getElementById('btn-play').onclick = actions.togglePlay;
 document.getElementById('btn-step').onclick = actions.step;
 document.getElementById('btn-rev-step').onclick = actions.reverse;
@@ -327,52 +306,7 @@ function rotateCurrentPattern() {
     toast("Rotated");
 }
 
-// RLE Import Logic
-const rleModal = document.getElementById('rle-modal');
-const rleInput = document.getElementById('rle-input');
-
-document.getElementById('btn-import-rle').onclick = () => {
-    rleInput.value = '';
-    rleModal.classList.add('show');
-    rleInput.focus();
-};
-
-document.getElementById('btn-rle-cancel').onclick = () => {
-    rleModal.classList.remove('show');
-};
-
-document.getElementById('btn-rle-load').onclick = () => {
-    const code = rleInput.value;
-    if (!code.trim()) return;
-
-    try {
-        const pattern = parseRLE(code);
-        if (pattern.length === 0) throw new Error("No cells found");
-
-        // Add to patterns and select it
-        CURRENT_PATTERNS['imported'] = pattern;
-        
-        // Add option if not exists
-        const select = document.getElementById('pattern-select');
-        if (!select.querySelector('option[value="imported"]')) {
-            const opt = document.createElement('option');
-            opt.value = 'imported';
-            opt.innerText = 'Imported / Custom';
-            select.appendChild(opt);
-        }
-        select.value = 'imported';
-        ui.selectedPattern = 'imported';
-        
-        // Switch to paste mode
-        document.querySelector('[data-mode="paste"]').click();
-        rleModal.classList.remove('show');
-        toast("RLE Loaded - Click to Paste");
-    } catch (e) {
-        console.error(e);
-        toast("Invalid RLE", true);
-    }
-};
-
+// RLE Parser (used by unified import)
 function parseRLE(str) {
     const lines = str.split('\n');
     let data = '';
@@ -413,29 +347,6 @@ function parseRLE(str) {
     }
     return coords;
 }
-
-// Init from URL
-function initFromURL() {
-    if (!window.location.hash) return;
-    const params = new URLSearchParams(window.location.hash.substring(1));
-    
-    const x = parseInt(params.get('x'));
-    const y = parseInt(params.get('y'));
-    const z = parseInt(params.get('z'));
-
-    if (!isNaN(z)) actions.setZoom(z);
-    if (!isNaN(x) && !isNaN(y)) {
-        ui.viewX = x;
-        ui.viewY = y;
-        // Delay slightly to ensure worker is ready, though postMessage buffer handles it
-        ui.worker.postMessage({
-            type: 'viewportMove',
-            payload: { x, y }
-        });
-        toast(`Jumped to (${x}, ${y})`);
-    }
-}
-initFromURL();
 
 // Mouse move handler to track cursor and apply tools / panning
 canvas.addEventListener('mousemove', e => {
@@ -542,35 +453,6 @@ const toast = (txt, isError = false) => {
 };
 
 // IO
-document.getElementById('btn-save').onclick = () => {
-    const name = document.getElementById('save-name').value || 'Untitled';
-    if (!ui.lastGrid) return;
-    
-    // Saving only viewport for LocalStorage (Simpler for now)
-    // or we could ask worker to export full world?
-    // Let's just save viewport for browser storage to keep it fast.
-    const state = {
-        timestamp: Date.now(),
-        w: ui.cols,
-        h: ui.rows,
-        packed: true,
-        data: Array.from(ui.lastGrid)
-    };
-    try {
-        localStorage.setItem('gol_' + name, JSON.stringify(state));
-        toast(`Saved View "${name}"`);
-    } catch (e) {
-        toast("Storage Full!", true);
-    }
-};
-
-document.getElementById('btn-load').onclick = () => {
-    const name = document.getElementById('save-name').value || 'Untitled';
-    const raw = localStorage.getItem('gol_' + name);
-    if (!raw) { toast("Save not found", true); return; }
-    loadFromJSON(raw);
-};
-
 document.getElementById('btn-export').onclick = () => {
     ui.worker.postMessage({ type: 'export' });
 };
@@ -583,17 +465,188 @@ document.getElementById('file-import').onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => loadFromJSON(ev.target.result);
+    reader.onload = (ev) => {
+        const content = ev.target.result;
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        // Detect format: MC, RLE, or JSON
+        if (ext === 'mc' || content.startsWith('[M2]')) {
+            loadFromMacrocell(content);
+        } else if (ext === 'rle' || ext === 'txt' || (content.includes('!') && !content.startsWith('{'))) {
+            loadFromRLE(content);
+        } else {
+            loadFromJSON(content);
+        }
+    };
     reader.readAsText(file);
     e.target.value = ''; 
 };
+
+function loadFromRLE(rleString) {
+    try {
+        const coords = parseRLE(rleString);
+        if (coords.length === 0) throw new Error("No cells found");
+        
+        // Convert coords to packed format for worker
+        // Find bounding box
+        let maxX = 0, maxY = 0;
+        for (let [x, y] of coords) {
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+        
+        const w = maxX + 1;
+        const h = maxY + 1;
+        const stride = Math.ceil(w / 32);
+        const data = new Array(stride * h).fill(0);
+        
+        for (let [x, y] of coords) {
+            const wordIdx = y * stride + Math.floor(x / 32);
+            const bit = x % 32;
+            data[wordIdx] |= (1 << bit);
+        }
+        
+        ui.worker.postMessage({
+            type: 'load',
+            payload: { w, h, data, packed: true }
+        });
+        toast("RLE Loaded");
+    } catch (e) {
+        console.error(e);
+        toast("Invalid RLE", true);
+    }
+}
+
+function loadFromMacrocell(mcString) {
+    try {
+        const lines = mcString.split('\n');
+        const nodes = [null]; // 1-indexed: node 0 = empty
+        
+        // Parse 8x8 leaf pattern from RLE-like string
+        function parseLeaf(rle) {
+            const grid = new Array(8).fill(null).map(() => new Array(8).fill(0));
+            let x = 0, y = 0;
+            let count = 0;
+            
+            for (let i = 0; i < rle.length; i++) {
+                const ch = rle[i];
+                if (ch >= '0' && ch <= '9') {
+                    count = count * 10 + parseInt(ch);
+                } else if (ch === 'b' || ch === '.') {
+                    x += (count || 1);
+                    count = 0;
+                } else if (ch === 'o' || ch === '*') {
+                    const run = count || 1;
+                    for (let k = 0; k < run; k++) {
+                        if (x < 8 && y < 8) grid[y][x] = 1;
+                        x++;
+                    }
+                    count = 0;
+                } else if (ch === '$') {
+                    y += (count || 1);
+                    x = 0;
+                    count = 0;
+                }
+            }
+            return { level: 4, grid }; // Level 4 = 2^4 = 16? No, 8x8 leaf is level 3
+        }
+        
+        for (let line of lines) {
+            line = line.trim();
+            if (!line || line.startsWith('[') || line.startsWith('#')) continue;
+            
+            // Check if it's an internal node (starts with number)
+            const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
+            if (match) {
+                const level = parseInt(match[1]);
+                const nw = parseInt(match[2]);
+                const ne = parseInt(match[3]);
+                const sw = parseInt(match[4]);
+                const se = parseInt(match[5]);
+                nodes.push({ level, nw, ne, sw, se });
+            } else if (line[0] === '$' || line[0] === '.' || line[0] === '*' || 
+                       line[0] === 'o' || line[0] === 'b') {
+                // It's a leaf node (8x8 pattern in RLE)
+                nodes.push(parseLeaf(line));
+            }
+        }
+        
+        if (nodes.length <= 1) throw new Error("No nodes found");
+        
+        const coords = [];
+        
+        // Iterative extraction (avoid stack overflow on deep trees)
+        const root = nodes[nodes.length - 1];
+        const rootSize = Math.pow(2, root.level);
+        const stack = [[nodes.length - 1, 0, 0, rootSize]];
+        
+        while (stack.length > 0) {
+            const [nodeIdx, x, y, size] = stack.pop();
+            
+            if (nodeIdx === 0) continue;
+            
+            const node = nodes[nodeIdx];
+            if (!node) continue;
+            
+            if (node.grid) {
+                // Leaf node: 8x8 grid
+                for (let ly = 0; ly < 8; ly++) {
+                    for (let lx = 0; lx < 8; lx++) {
+                        if (node.grid[ly][lx]) {
+                            coords.push([x + lx, y + ly]);
+                        }
+                    }
+                }
+            } else {
+                // Internal node: push quadrants to stack
+                const half = size / 2;
+                stack.push([node.se, x + half, y + half, half]);
+                stack.push([node.sw, x, y + half, half]);
+                stack.push([node.ne, x + half, y, half]);
+                stack.push([node.nw, x, y, half]);
+            }
+        }
+        
+        if (coords.length === 0) throw new Error("No live cells found");
+        
+        // Normalize to origin
+        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+        for (let [x, y] of coords) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+        
+        const w = maxX - minX + 1;
+        const h = maxY - minY + 1;
+        const stride = Math.ceil(w / 32);
+        const data = new Array(stride * h).fill(0);
+        
+        for (let [x, y] of coords) {
+            const nx = x - minX;
+            const ny = y - minY;
+            const wordIdx = ny * stride + Math.floor(nx / 32);
+            const bit = nx % 32;
+            data[wordIdx] |= (1 << bit);
+        }
+        
+        ui.worker.postMessage({
+            type: 'load',
+            payload: { w, h, data, packed: true }
+        });
+        toast(`Loaded ${coords.length} cells`);
+    } catch (e) {
+        console.error(e);
+        toast("Invalid Macrocell", true);
+    }
+}
 
 function loadFromJSON(jsonString) {
     try {
         const state = JSON.parse(jsonString);
         if (!state.w || !state.h || !state.data) throw new Error("Invalid Format");
 
-        // We send raw data to worker, it handles placement
         ui.worker.postMessage({ 
             type: 'load', 
             payload: state 
