@@ -272,6 +272,31 @@ document.getElementById('density-range').oninput = (e) => {
     document.getElementById('density-label').innerText = `${e.target.value}%`;
 };
 
+// History toggle
+document.getElementById('history-toggle').onchange = (e) => {
+    const enabled = e.target.checked;
+    const sizeInput = document.getElementById('history-size');
+    const revBtn = document.getElementById('btn-rev-step');
+    
+    sizeInput.disabled = !enabled;
+    revBtn.disabled = !enabled;
+    
+    ui.worker.postMessage({
+        type: 'setHistory',
+        payload: { enabled, size: parseInt(sizeInput.value) }
+    });
+};
+
+document.getElementById('history-size').onchange = (e) => {
+    const enabled = document.getElementById('history-toggle').checked;
+    if (enabled) {
+        ui.worker.postMessage({
+            type: 'setHistory',
+            payload: { enabled, size: parseInt(e.target.value) }
+        });
+    }
+};
+
 document.querySelectorAll('.tool-btn').forEach(b => {
     b.onclick = () => {
         document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
@@ -483,7 +508,11 @@ window.addEventListener('keydown', (e) => {
     switch(e.key) {
         case ' ': e.preventDefault(); actions.togglePlay(); break;
         case 'ArrowRight': actions.step(); break;
-        case 'ArrowLeft': actions.reverse(); break; // Will do nothing for now
+        case 'ArrowLeft': 
+            if (document.getElementById('history-toggle').checked) {
+                actions.reverse();
+            }
+            break;
         case 'c': case 'C': actions.clear(); break;
         case 'r': case 'R': actions.rotate(); break;
         case '[': {

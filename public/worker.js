@@ -21,7 +21,11 @@ let running = false;
 let generation = 0;
 let fps = 30;
 let timerID = null;
-let history = []; // State history is harder with sparse map. We might disable or simplify history for now.
+
+// History (ring buffer)
+let historyEnabled = false;
+let historyMaxSize = 20;
+let history = []; // Array of {chunks: Map, generation: number}
 
 // Initialize
 self.onmessage = function(e) {
@@ -66,17 +70,28 @@ self.onmessage = function(e) {
 
         case 'step':
             running = false;
+            if (timerID) clearTimeout(timerID);
             step();
             break;
             
         case 'reverse':
             running = false;
-            // History not implemented for infinite grid yet
-            // reverse(); 
+            if (timerID) clearTimeout(timerID);
+            if (popHistory()) {
+                sendUpdate();
+            }
             break;
 
         case 'setFps':
             fps = payload;
+            break;
+
+        case 'setHistory':
+            historyEnabled = payload.enabled;
+            historyMaxSize = payload.size || 20;
+            if (!historyEnabled) {
+                history = []; // Free memory
+            }
             break;
 
         case 'setCell':
@@ -107,6 +122,7 @@ self.onmessage = function(e) {
         case 'clear':
             chunks.clear();
             generation = 0;
+            history = [];
             running = false;
             sendUpdate();
             break;
@@ -115,6 +131,7 @@ self.onmessage = function(e) {
             // Randomize only visible area? Or a fixed area?
             // Infinite random is impossible.
             // Let's randomize the current viewport.
+            history = [];
             randomize(payload, true);
             sendUpdate();
             break;
@@ -291,9 +308,43 @@ function exportWorld() {
     });
 }
 
+// --- History Management ---
+
+function cloneChunks() {
+    const copy = new Map();
+    for (let [key, chunk] of chunks) {
+        copy.set(key, new Uint32Array(chunk));
+    }
+    return copy;
+}
+
+function pushHistory() {
+    if (!historyEnabled) return;
+    
+    history.push({
+        chunks: cloneChunks(),
+        generation: generation
+    });
+    
+    // Ring buffer: trim oldest if over limit
+    if (history.length > historyMaxSize) {
+        history.shift();
+    }
+}
+
+function popHistory() {
+    if (!historyEnabled || history.length === 0) return false;
+    
+    const state = history.pop();
+    chunks = state.chunks;
+    generation = state.generation;
+    return true;
+}
+
 // --- Simulation ---
 
 function step() {
+    pushHistory();
     nextChunks = new Map();
     
     // Set of keys to process: All active chunks + their neighbors

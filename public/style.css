@@ -67,12 +67,17 @@ button, select, input[type="text"] {
     transition: all 0.2s; flex: 1;
 }
 button:hover { border-color: var(--secondary); background: var(--bg); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:disabled:hover { border-color: transparent; background: var(--bg-lighter); }
 button.active { background: var(--warning); color: var(--bg); font-weight: bold; }
 #btn-play { background: var(--primary); color: var(--bg); font-weight: bold; }
 #btn-play:hover { opacity: 0.9; }
 #btn-play.active { background: var(--warning); }
 
 input[type="range"] { width: 100%; accent-color: var(--primary); cursor: ew-resize; }
+input[type="checkbox"] { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
+input[type="number"] { background: var(--bg-lighter); border: 1px solid transparent; color: var(--text); padding: 4px; font-family: inherit; border-radius: 4px; }
+input[type="number"]:disabled { opacity: 0.4; }
 
 /* Canvas Area */
 main { flex: 1; position: relative; cursor: crosshair; overflow: hidden; order: -1; } /* Order -1 to be left of aside */

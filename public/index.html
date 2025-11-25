@@ -62,8 +62,16 @@
                     <button id="btn-step">Step +</button>
                 </div>
                 <div class="row">
-                    <button id="btn-rev-step">Step -</button>
+                    <button id="btn-rev-step" disabled>Step -</button>
                     <button id="btn-clear" style="color: var(--error)">Kill All</button>
+                </div>
+                <div class="row" style="align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                        <input type="checkbox" id="history-toggle">
+                        <span style="font-size: 0.75rem;">History</span>
+                    </label>
+                    <input type="number" id="history-size" min="5" max="100" value="20" style="width: 50px; text-align: center;" disabled>
+                    <span style="font-size: 0.7rem; color: var(--text-dim);">steps</span>
                 </div>
                 <input type="range" id="speed-range" min="1" max="60" value="30">
                 <div class="label" style="text-align:right" id="speed-label">30 FPS</div>
