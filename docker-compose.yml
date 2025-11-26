@@ -14,5 +14,5 @@ services:
 #   proxy:
 #     external: true
 
-# Development: use docker compose -f docker-compose.yml -f docker-compose.override.yml up
-# Production: use docker compose up (no volume mount)
+# Development: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+# Production: docker compose up -d
