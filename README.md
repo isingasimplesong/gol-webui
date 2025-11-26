@@ -1,6 +1,6 @@
 # Life Engine
 
-A high-performance, infinite-grid implementation of Conway's Game of Life with a Nord-themed interface.
+A high-performance, infinite-grid implementation of Conway's Game of Life with a polished web UI
 
 ## Features
 
