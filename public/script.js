@@ -254,6 +254,9 @@ const PATTERN_LIBRARY = {
     'Misc': {
         'Puffer Train': '3bo$4bo$o3bo$b4o5$3bo$bobo$obo$bo$bo$2o5$3bo$4bo$o3bo$b4o!',
         'Space Rake': '6bo$4bobo$3bo2bo$4b2o2$o$b3o4bo$4bo3bo$4bo2bo$5b2o!',
+    },
+    'Showcase': {
+        'Game of Life Demo': '24bo11b2o$22bobo11b2o$12b2o6b2o12b2o$11bo3bo4b2o12b2o$2o8bo5bo3b2o$2o8bo3bob2o4bobo$10bo5bo7bo$11bo3bo$12b2o4$42b2o$42b2o9$60b2o$59bo2bo$59bo2bo$60b2o9$80bo$78bobo$79b2o!',
     }
 };
 
@@ -707,6 +710,17 @@ resetCurrentPattern();
 
 const ui = new UI(canvas);
 const statDisplay = document.getElementById('stat-display');
+
+// Load default showcase pattern after UI is ready
+function loadDefaultPattern() {
+    // Wait for worker to be ready
+    setTimeout(() => {
+        loadPatternToGrid('Showcase::Game of Life Demo');
+    }, 500);
+}
+
+// Load default pattern on startup
+loadDefaultPattern();
 
 function updateStats(gen, pop, bbox = null, rule = null) {
     let text = `Gen: ${gen} | Pop: ${pop}`;
