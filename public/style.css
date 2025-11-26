@@ -5,6 +5,11 @@
     --primary: #88C0D0; --secondary: #81A1C1;
     --success: #A3BE8C; --error: #BF616A;
     --warning: #B48EAD; /* Nord Magenta */
+    
+    /* Layout */
+    --sidebar-width: 320px;
+    --transition-duration: 0.3s;
+    --shadow-default: 0 10px 25px rgba(0,0,0,0.5);
 }
 
 body {
@@ -14,10 +19,10 @@ body {
 
 /* Sidebar UI */
 aside {
-    width: 320px; background: var(--bg-light); 
+    width: var(--sidebar-width); background: var(--bg-light); 
     border-left: 1px solid var(--bg-lighter); z-index: 10;
     box-shadow: -2px 0 10px rgba(0,0,0,0.2);
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width var(--transition-duration) cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     display: flex; flex-direction: column;
 }
@@ -25,7 +30,7 @@ aside {
 aside.collapsed { width: 0; }
 
 .sidebar-inner {
-    width: 320px; /* Fixed width content to prevent squashing */
+    width: var(--sidebar-width); /* Fixed width content to prevent squashing */
     display: flex; flex-direction: column; height: 100%;
     overflow: hidden;
 }
@@ -102,7 +107,7 @@ canvas { display: block; image-rendering: pixelated; }
 .modal {
     background: var(--bg-light); border: 1px solid var(--primary);
     padding: 30px; border-radius: 4px; max-width: 400px; width: 90%;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow-default);
 }
 .modal h2 { margin-top: 0; color: var(--primary); font-size: 1.4rem; }
 .key-list { display: flex; flex-direction: column; gap: 10px; margin: 20px 0; }
