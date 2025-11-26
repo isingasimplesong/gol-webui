@@ -1,14 +1,46 @@
 /**
  * UI & Render Logic (Main Thread)
+ * 
+ * COORDINATE SYSTEMS (see worker.js for full documentation):
+ * 
+ * - Canvas pixels: raw mouse/render coordinates
+ * - Viewport cells: canvas pixels / cellSize, range [0, cols) x [0, rows)
+ * - Global cells: viewX + viewport_x, viewY + viewport_y
+ * 
+ * The UI class manages viewport offset (viewX, viewY) and communicates
+ * with the worker using flat viewport indices for cell operations.
  */
+
+// Color utility for ImageData rendering
+function hexToRGB(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+}
+
+// Age thresholds for color mapping
+const AGE_THRESHOLDS = {
+    newborn: 0,
+    young: 2,
+    maturing: 5,
+    mature: 10,
+    old: 20,
+};
+
 const CONF = {
     cellSize: 10,
+    cellSizeMin: 2,
+    cellSizeMax: 40,
     gridColor: '#3B4252',
+    gridLineColor: '#353C4A',
     liveColor: '#A3BE8C',
     deadColor: '#2E3440',
     error: '#BF616A',
     useAgeColor: false,
-    // Age gradient: young (bright) -> old (dim)
+    // Age gradient: young (bright) -> old (dim), indexed by AGE_THRESHOLDS
     ageColors: [
         '#ECEFF4', // 0: newborn (bright white)
         '#A3BE8C', // 1-2: young (green)
@@ -48,6 +80,7 @@ class UI {
         // Worker
         this.worker = new Worker('worker.js');
         this.worker.onmessage = this.onWorkerMessage.bind(this);
+        this.worker.onerror = this.onWorkerError.bind(this);
 
         // State
         this.isRunning = false;
@@ -95,6 +128,13 @@ class UI {
         }
     }
 
+    onWorkerError(e) {
+        console.error('Worker error:', e.message, '\n  at', e.filename, ':', e.lineno);
+        toast(`Worker error: ${e.message}`, true);
+        this.isRunning = false;
+        updateBtnState(false);
+    }
+
     idx(x, y) {
         // Viewport index
         if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1;
@@ -126,46 +166,143 @@ class UI {
     draw() {
         if (!this.lastGrid) return;
 
-        // Clear
-        this.ctx.fillStyle = CONF.deadColor;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-        // Grid Lines
-        if (CONF.cellSize >= 4) {
-            this.ctx.strokeStyle = '#353C4A';
-            this.ctx.lineWidth = 1;
-            this.ctx.beginPath();
-            const w = this.canvas.width;
-            const h = this.canvas.height;
-            for(let x=0; x<=w; x+=CONF.cellSize) {
-                this.ctx.moveTo(x,0); this.ctx.lineTo(x, h);
-            }
-            for(let y=0; y<=h; y+=CONF.cellSize) {
-                this.ctx.moveTo(0,y); this.ctx.lineTo(w, y);
-            }
-            this.ctx.stroke();
+        const cellSize = CONF.cellSize;
+        const canvasW = this.canvas.width;
+        const canvasH = this.canvas.height;
+        
+        // Use ImageData for fast pixel rendering when cell size is small
+        // For larger cells with grid lines, use fillRect approach
+        if (cellSize <= 3) {
+            this.drawImageData();
+        } else {
+            this.drawFillRect();
         }
 
-        // Live Cells
-        const sz = CONF.cellSize > 1 ? CONF.cellSize - 1 : 1;
+        // Ghost Pattern (always use fillRect for transparency)
+        if (this.mode === 'paste' && !this.isRunning) {
+            const sz = cellSize > 1 ? cellSize - 1 : 1;
+            this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
+            const p = CURRENT_PATTERNS[this.selectedPattern];
+            const mx = Math.floor(this.mouse.x / cellSize);
+            const my = Math.floor(this.mouse.y / cellSize);
+            
+            for (let [px, py] of p) {
+                const tx = (mx + px) * cellSize;
+                const ty = (my + py) * cellSize;
+                this.ctx.fillRect(tx, ty, sz, sz);
+            }
+        }
+    }
 
-        // The grid we receive IS the viewport. So we just draw it 1:1.
+    // Fast rendering using ImageData for small cell sizes
+    drawImageData() {
+        const cellSize = CONF.cellSize;
+        const canvasW = this.canvas.width;
+        const canvasH = this.canvas.height;
+        
+        // Create or reuse ImageData
+        if (!this.imageData || this.imageData.width !== canvasW || this.imageData.height !== canvasH) {
+            this.imageData = this.ctx.createImageData(canvasW, canvasH);
+        }
+        const data = this.imageData.data;
+        
+        // Parse colors once
+        const deadRGB = hexToRGB(CONF.deadColor);
+        const liveRGB = hexToRGB(CONF.liveColor);
+        
+        // Fill with dead color
+        for (let i = 0; i < data.length; i += 4) {
+            data[i] = deadRGB.r;
+            data[i + 1] = deadRGB.g;
+            data[i + 2] = deadRGB.b;
+            data[i + 3] = 255;
+        }
+        
+        // Draw live cells
         for (let i = 0; i < this.lastGrid.length; i++) {
             const word = this.lastGrid[i];
-            if (word === 0) continue; 
+            if (word === 0) continue;
+            
+            const wordRow = Math.floor(i / this.stride);
+            const wordColStart = (i % this.stride) * 32;
+            
+            for (let bit = 0; bit < 32; bit++) {
+                if ((word >>> bit) & 1) {
+                    const cellX = wordColStart + bit;
+                    const cellY = wordRow;
+                    
+                    // Determine color
+                    let rgb;
+                    if (CONF.useAgeColor && this.lastAges) {
+                        const age = this.lastAges[cellY * this.cols + cellX] || 0;
+                        rgb = hexToRGB(getAgeColor(age));
+                    } else {
+                        rgb = liveRGB;
+                    }
+                    
+                    // Fill cell pixels
+                    const startX = cellX * cellSize;
+                    const startY = cellY * cellSize;
+                    const endX = Math.min(startX + cellSize, canvasW);
+                    const endY = Math.min(startY + cellSize, canvasH);
+                    
+                    for (let py = startY; py < endY; py++) {
+                        for (let px = startX; px < endX; px++) {
+                            const idx = (py * canvasW + px) * 4;
+                            data[idx] = rgb.r;
+                            data[idx + 1] = rgb.g;
+                            data[idx + 2] = rgb.b;
+                        }
+                    }
+                }
+            }
+        }
+        
+        this.ctx.putImageData(this.imageData, 0, 0);
+    }
 
-            const wordRow = Math.floor(i / this.stride); 
-            const wordColStart = (i % this.stride) * 32; 
+    // Traditional fillRect rendering for larger cells with grid lines
+    drawFillRect() {
+        const cellSize = CONF.cellSize;
+        const canvasW = this.canvas.width;
+        const canvasH = this.canvas.height;
+        
+        // Clear
+        this.ctx.fillStyle = CONF.deadColor;
+        this.ctx.fillRect(0, 0, canvasW, canvasH);
+
+        // Grid Lines
+        this.ctx.strokeStyle = '#353C4A';
+        this.ctx.lineWidth = 1;
+        this.ctx.beginPath();
+        for (let x = 0; x <= canvasW; x += cellSize) {
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, canvasH);
+        }
+        for (let y = 0; y <= canvasH; y += cellSize) {
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(canvasW, y);
+        }
+        this.ctx.stroke();
+
+        // Live Cells
+        const sz = cellSize - 1;
+
+        for (let i = 0; i < this.lastGrid.length; i++) {
+            const word = this.lastGrid[i];
+            if (word === 0) continue;
+
+            const wordRow = Math.floor(i / this.stride);
+            const wordColStart = (i % this.stride) * 32;
 
             for (let bit = 0; bit < 32; bit++) {
                 if ((word >>> bit) & 1) {
                     const cellX = wordColStart + bit;
                     const cellY = wordRow;
-                    const x = cellX * CONF.cellSize;
-                    const y = cellY * CONF.cellSize;
+                    const x = cellX * cellSize;
+                    const y = cellY * cellSize;
                     
-                    if (x < this.canvas.width && y < this.canvas.height) {
-                        // Determine color
+                    if (x < canvasW && y < canvasH) {
                         if (CONF.useAgeColor && this.lastAges) {
                             const age = this.lastAges[cellY * this.cols + cellX] || 0;
                             this.ctx.fillStyle = getAgeColor(age);
@@ -175,20 +312,6 @@ class UI {
                         this.ctx.fillRect(x, y, sz, sz);
                     }
                 }
-            }
-        }
-
-        // Ghost Pattern
-        if (this.mode === 'paste' && !this.isRunning) {
-            this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
-            const p = CURRENT_PATTERNS[this.selectedPattern];
-            const mx = Math.floor(this.mouse.x / CONF.cellSize);
-            const my = Math.floor(this.mouse.y / CONF.cellSize);
-            
-            for (let [px, py] of p) {
-                const tx = (mx + px) * CONF.cellSize;
-                const ty = (my + py) * CONF.cellSize;
-                this.ctx.fillRect(tx, ty, sz, sz);
             }
         }
     }
@@ -212,13 +335,13 @@ function updateStats(gen, pop) {
     statDisplay.innerText = `Gen: ${gen} | Pop: ${pop}`;
 }
 
-// Age color mapping
+// Age color mapping using AGE_THRESHOLDS
 function getAgeColor(age) {
-    if (age <= 0) return CONF.ageColors[0];
-    if (age <= 2) return CONF.ageColors[1];
-    if (age <= 5) return CONF.ageColors[2];
-    if (age <= 10) return CONF.ageColors[3];
-    if (age <= 20) return CONF.ageColors[4];
+    if (age <= AGE_THRESHOLDS.newborn) return CONF.ageColors[0];
+    if (age <= AGE_THRESHOLDS.young) return CONF.ageColors[1];
+    if (age <= AGE_THRESHOLDS.maturing) return CONF.ageColors[2];
+    if (age <= AGE_THRESHOLDS.mature) return CONF.ageColors[3];
+    if (age <= AGE_THRESHOLDS.old) return CONF.ageColors[4];
     return CONF.ageColors[5];
 }
 
@@ -314,12 +437,20 @@ document.querySelectorAll('.tool-btn').forEach(b => {
     };
 });
 
+// Pattern selection resets to base orientation (intentional design choice)
+// This avoids confusion when switching patterns mid-rotation
 document.getElementById('pattern-select').onchange = (e) => {
     ui.selectedPattern = e.target.value;
     CURRENT_PATTERNS[ui.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[ui.selectedPattern]));
     document.querySelector('[data-mode="paste"]').click();
 };
 document.getElementById('btn-rotate').onclick = actions.rotate;
+
+// Reset pattern to base orientation
+document.getElementById('btn-reset-pattern')?.addEventListener('click', () => {
+    CURRENT_PATTERNS[ui.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[ui.selectedPattern]));
+    toast("Pattern reset");
+});
 
 // Color picker
 document.querySelectorAll('.color-swatch').forEach(swatch => {
@@ -506,9 +637,28 @@ document.getElementById('btn-import-trigger').onclick = () => {
     document.getElementById('file-import').click();
 };
 
+// File size limits
+const FILE_SIZE_WARN_MB = 10;
+const FILE_SIZE_HARD_LIMIT_MB = 100;
+
 document.getElementById('file-import').onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // File size validation
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > FILE_SIZE_HARD_LIMIT_MB) {
+        toast(`File too large (${sizeMB.toFixed(1)} MB). Max: ${FILE_SIZE_HARD_LIMIT_MB} MB`, true);
+        e.target.value = '';
+        return;
+    }
+    if (sizeMB > FILE_SIZE_WARN_MB) {
+        if (!confirm(`Large file (${sizeMB.toFixed(1)} MB). This may take a while. Continue?`)) {
+            e.target.value = '';
+            return;
+        }
+    }
+    
     const reader = new FileReader();
     reader.onload = (ev) => {
         const content = ev.target.result;
@@ -593,7 +743,7 @@ function loadFromMacrocell(mcString) {
                     count = 0;
                 }
             }
-            return { level: 4, grid }; // Level 4 = 2^4 = 16? No, 8x8 leaf is level 3
+            return { level: 3, grid }; // Level 3 = 2^3 = 8x8 leaf
         }
         
         for (let line of lines) {
@@ -608,6 +758,14 @@ function loadFromMacrocell(mcString) {
                 const ne = parseInt(match[3]);
                 const sw = parseInt(match[4]);
                 const se = parseInt(match[5]);
+                
+                // Validate node references are in bounds
+                const currentIdx = nodes.length;
+                if (nw < 0 || nw >= currentIdx || ne < 0 || ne >= currentIdx ||
+                    sw < 0 || sw >= currentIdx || se < 0 || se >= currentIdx) {
+                    throw new Error(`Invalid node reference at node ${currentIdx}: indices must be < ${currentIdx}`);
+                }
+                
                 nodes.push({ level, nw, ne, sw, se });
             } else if (line[0] === '$' || line[0] === '.' || line[0] === '*' || 
                        line[0] === 'o' || line[0] === 'b') {

@@ -1,11 +1,57 @@
 /**
  * Worker Logic for Game of Life
  * Phase 4: Infinite Grid (Sparse Chunking) + SWAR
+ * 
+ * COORDINATE SYSTEMS:
+ * 
+ * 1. Viewport Coordinates (vx, vy)
+ *    - Range: [0, viewW) x [0, viewH)
+ *    - Origin: top-left of visible canvas area
+ *    - Used for: UI interactions, render buffer indexing
+ * 
+ * 2. Global Coordinates (x, y)
+ *    - Range: Z x Z (infinite integer grid)
+ *    - Origin: (0, 0) is world center
+ *    - Used for: cell storage, pattern placement
+ * 
+ * 3. Chunk Coordinates (cx, cy)
+ *    - Derived: cx = floor(x / CHUNK_SIZE), cy = floor(y / CHUNK_SIZE)
+ *    - Key format: "cx,cy" string
+ *    - Used for: sparse Map indexing
+ * 
+ * 4. Local Coordinates (lx, ly)
+ *    - Range: [0, CHUNK_SIZE) x [0, CHUNK_SIZE)
+ *    - Derived: lx = x mod CHUNK_SIZE, ly = y mod CHUNK_SIZE
+ *    - Used for: bit/row indexing within a chunk
+ * 
+ * TRANSFORMS:
+ *    Viewport -> Global:  (x, y) = (viewX + vx, viewY + vy)
+ *    Global -> Chunk:     (cx, cy) = (floor(x/32), floor(y/32))
+ *    Global -> Local:     (lx, ly) = (x mod 32, y mod 32) with negative handling
+ *    Chunk+Local -> Global: (x, y) = (cx * 32 + lx, cy * 32 + ly)
+ * 
+ * CHUNK STORAGE:
+ *    Each chunk is Uint32Array(32), where:
+ *    - chunk[ly] is a 32-bit word representing row ly
+ *    - Bit lx of chunk[ly] represents cell at local (lx, ly)
+ *    - Bit 0 is leftmost, bit 31 is rightmost
  */
 
 // Configuration
-const CHUNK_SIZE = 32; // Width/Height of a chunk (matches 32-bit integer)
-const BITS = 32;
+const CONFIG = {
+    CHUNK_SIZE: 32,      // Width/Height of a chunk (matches 32-bit integer)
+    BITS_PER_WORD: 32,   // Bits per Uint32 word
+    FPS_MIN: 1,
+    FPS_MAX: 60,
+    FPS_DEFAULT: 30,
+    HISTORY_MIN: 5,
+    HISTORY_MAX: 100,
+    HISTORY_DEFAULT: 20,
+};
+
+// Aliases for frequently used values
+const CHUNK_SIZE = CONFIG.CHUNK_SIZE;
+const BITS = CONFIG.BITS_PER_WORD;
 
 // State
 let chunks = new Map(); // Key: "cx,cy", Value: Uint32Array(32)
@@ -22,14 +68,19 @@ let generation = 0;
 let fps = 30;
 let timerID = null;
 
-// History (ring buffer)
+// Running population counter (avoids full scan each frame)
+let totalPopulation = 0;
+
+// History (ring buffer with delta encoding)
+// Each entry stores only chunks that changed from the previous state
 let historyEnabled = false;
 let historyMaxSize = 20;
-let history = []; // Array of {chunks: Map, generation: number}
+let history = []; // Array of {delta: Map<key, {old: Uint32Array|null, new: Uint32Array|null}>, generation, population}
 
 // Age tracking (optional, for visualization)
+// Uses parallel chunk structure: Map<"cx,cy", Uint8Array(1024)> where 1024 = 32x32 cells
 let ageTrackingEnabled = false;
-let cellAges = new Map(); // Key: "x,y", Value: age (generations alive)
+let ageChunks = new Map(); // Key: "cx,cy", Value: Uint8Array(1024) - ages capped at 255
 
 // Initialize
 self.onmessage = function(e) {
@@ -43,6 +94,7 @@ self.onmessage = function(e) {
             // If first run, seed with interesting default pattern
             if (chunks.size === 0 && !payload.preserve) {
                 seedDefaultPattern();
+                recalculateTotalPopulation();
             }
             sendUpdate();
             break;
@@ -101,7 +153,7 @@ self.onmessage = function(e) {
         case 'setAgeTracking':
             ageTrackingEnabled = payload;
             if (!ageTrackingEnabled) {
-                cellAges.clear(); // Free memory
+                ageChunks.clear(); // Free memory
             } else {
                 // Initialize ages for existing cells
                 initializeAges();
@@ -136,18 +188,22 @@ self.onmessage = function(e) {
 
         case 'clear':
             chunks.clear();
+            ageChunks.clear();
             generation = 0;
+            totalPopulation = 0;
             history = [];
             running = false;
             sendUpdate();
             break;
 
         case 'randomize':
-            // Randomize only visible area? Or a fixed area?
-            // Infinite random is impossible.
-            // Let's randomize the current viewport.
+            // Clear existing pattern before randomizing (avoids overlay behavior)
+            chunks.clear();
+            ageChunks.clear();
             history = [];
+            // Randomize only visible area (infinite random is impossible)
             randomize(payload, true);
+            recalculateTotalPopulation();
             sendUpdate();
             break;
             
@@ -156,6 +212,7 @@ self.onmessage = function(e) {
              // We'll just load it at (0,0) or center of view?
              // For now, clear and load at (0,0).
              chunks.clear();
+             ageChunks.clear();
              if (payload.packed) {
                  // Legacy/Previous format was flat array.
                  // We need to migrate load logic.
@@ -163,6 +220,7 @@ self.onmessage = function(e) {
                  loadFlatData(payload.data, payload.w, payload.h);
              }
              generation = 0;
+             recalculateTotalPopulation();
              sendUpdate();
              break;
              
@@ -203,8 +261,53 @@ function setCell(x, y, val) {
         chunk[ly] |= (1 << lx);
     } else {
         chunk[ly] &= ~(1 << lx);
-        // TODO: Check if chunk is empty and delete?
+        // Check if chunk is now empty and delete it
+        if (isChunkEmpty(chunk)) {
+            chunks.delete(getChunkKey(cx, cy));
+        }
     }
+}
+
+function isChunkEmpty(chunk) {
+    for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i] !== 0) return false;
+    }
+    return true;
+}
+
+// Fast population count using lookup table (Brian Kernighan's algorithm is also fine)
+function popcount32(n) {
+    n = n - ((n >>> 1) & 0x55555555);
+    n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+    return (((n + (n >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+}
+
+function countChunkPopulation(chunk) {
+    let pop = 0;
+    for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i]) pop += popcount32(chunk[i]);
+    }
+    return pop;
+}
+
+function recalculateTotalPopulation() {
+    totalPopulation = 0;
+    for (const chunk of chunks.values()) {
+        totalPopulation += countChunkPopulation(chunk);
+    }
+}
+
+function garbageCollectChunks() {
+    const toDelete = [];
+    for (const [key, chunk] of chunks) {
+        if (isChunkEmpty(chunk)) {
+            toDelete.push(key);
+        }
+    }
+    for (const key of toDelete) {
+        chunks.delete(key);
+    }
+    return toDelete.length;
 }
 
 function getCell(x, y) {
@@ -236,6 +339,7 @@ function loadFlatData(data, w, h) {
             }
         }
     }
+    garbageCollectChunks();
 }
 
 function randomize(density = 0.25, viewportOnly = false) {
@@ -250,6 +354,7 @@ function randomize(density = 0.25, viewportOnly = false) {
                  }
             }
         }
+        garbageCollectChunks();
     }
 }
 
@@ -347,6 +452,8 @@ function exportWorld() {
     
     // 3. Generate RLE
     let rle = `#C Exported from Life Engine\nx = ${w}, y = ${h}, rule = B3/S23\n`;
+    let lineLen = 0;
+    const MAX_LINE_LEN = 70;
     
     for (let y = 0; y < h; y++) {
         let x = 0;
@@ -367,21 +474,30 @@ function exportWorld() {
             }
             
             const char = alive ? 'o' : 'b';
-            rowRle += (count > 1 ? count : '') + char;
+            const token = (count > 1 ? count : '') + char;
+            
+            // Line wrap before adding token if it would exceed limit
+            if (lineLen + token.length > MAX_LINE_LEN && lineLen > 0) {
+                rle += '\n';
+                lineLen = 0;
+            }
+            
+            rowRle += token;
+            lineLen += token.length;
             x += count;
         }
         
         // End of row: $ or ! for last row
-        if (y < h - 1) {
-            rle += rowRle + '$';
-        } else {
-            rle += rowRle + '!';
+        const terminator = (y < h - 1) ? '$' : '!';
+        
+        // Line wrap before terminator if needed
+        if (lineLen + 1 > MAX_LINE_LEN && lineLen > 0) {
+            rle += '\n';
+            lineLen = 0;
         }
         
-        // Line wrap for readability (every ~70 chars)
-        if (rle.length > 70 && y < h - 1) {
-            rle += '\n';
-        }
+        rle += rowRle + terminator;
+        lineLen += 1;
     }
     
     self.postMessage({
@@ -390,43 +506,111 @@ function exportWorld() {
     });
 }
 
-// --- History Management ---
+// --- History Management (Delta-based) ---
 
-function cloneChunks() {
-    const copy = new Map();
-    for (let [key, chunk] of chunks) {
-        copy.set(key, new Uint32Array(chunk));
-    }
-    return copy;
+// Clone a single chunk
+function cloneChunk(chunk) {
+    return chunk ? new Uint32Array(chunk) : null;
 }
 
-function pushHistory() {
-    if (!historyEnabled) return;
+// Build delta: compare old chunks with new chunks
+// Returns Map<key, {old: Uint32Array|null, new: Uint32Array|null}>
+function buildDelta(oldChunks, newChunks) {
+    const delta = new Map();
+    const allKeys = new Set([...oldChunks.keys(), ...newChunks.keys()]);
     
-    history.push({
-        chunks: cloneChunks(),
-        generation: generation
-    });
-    
-    // Ring buffer: trim oldest if over limit
-    if (history.length > historyMaxSize) {
-        history.shift();
+    for (const key of allKeys) {
+        const oldChunk = oldChunks.get(key);
+        const newChunk = newChunks.get(key);
+        
+        // Check if chunks are different
+        let changed = false;
+        if (!oldChunk && newChunk) {
+            changed = true;
+        } else if (oldChunk && !newChunk) {
+            changed = true;
+        } else if (oldChunk && newChunk) {
+            for (let i = 0; i < CHUNK_SIZE; i++) {
+                if (oldChunk[i] !== newChunk[i]) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        
+        if (changed) {
+            delta.set(key, {
+                old: cloneChunk(oldChunk),
+                new: cloneChunk(newChunk)
+            });
+        }
     }
+    
+    return delta;
+}
+
+// Apply delta in reverse (go back in time)
+function applyDeltaReverse(delta) {
+    for (const [key, change] of delta) {
+        if (change.old) {
+            chunks.set(key, new Uint32Array(change.old));
+        } else {
+            chunks.delete(key);
+        }
+    }
+}
+
+// Temporary storage for pre-step state (used by pushHistory)
+let preStepChunks = null;
+let preStepGeneration = 0;
+let preStepPopulation = 0;
+
+function capturePreStepState() {
+    if (!historyEnabled) return;
+    preStepChunks = new Map();
+    for (const [key, chunk] of chunks) {
+        preStepChunks.set(key, new Uint32Array(chunk));
+    }
+    preStepGeneration = generation;
+    preStepPopulation = totalPopulation;
+}
+
+function pushHistoryDelta() {
+    if (!historyEnabled || !preStepChunks) return;
+    
+    const delta = buildDelta(preStepChunks, chunks);
+    
+    // Only push if something changed
+    if (delta.size > 0) {
+        history.push({
+            delta: delta,
+            generation: preStepGeneration,
+            population: preStepPopulation
+        });
+        
+        // Ring buffer: trim oldest if over limit
+        if (history.length > historyMaxSize) {
+            history.shift();
+        }
+    }
+    
+    preStepChunks = null;
 }
 
 function popHistory() {
     if (!historyEnabled || history.length === 0) return false;
     
     const state = history.pop();
-    chunks = state.chunks;
+    applyDeltaReverse(state.delta);
     generation = state.generation;
+    totalPopulation = state.population;
     return true;
 }
 
 // --- Simulation ---
 
 function step() {
-    pushHistory();
+    capturePreStepState();
     nextChunks = new Map();
     
     // Set of keys to process: All active chunks + their neighbors
@@ -586,53 +770,89 @@ function step() {
         updateAges(nextChunks);
     }
     
+    // Update population counter incrementally
+    let newPop = 0;
+    for (const chunk of nextChunks.values()) {
+        newPop += countChunkPopulation(chunk);
+    }
+    totalPopulation = newPop;
+    
     chunks = nextChunks;
     generation++;
+    
+    // Push delta to history (after chunks is updated)
+    pushHistoryDelta();
+    
     sendUpdate();
 }
 
-// Age tracking functions
+// Age tracking functions using parallel chunk structure
+// Each age chunk is a Uint8Array(1024) for 32x32 cells, indexed as [ly * 32 + lx]
+
+function getAgeChunk(cx, cy, create = false) {
+    const key = getChunkKey(cx, cy);
+    let ageChunk = ageChunks.get(key);
+    if (!ageChunk && create) {
+        ageChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+        ageChunks.set(key, ageChunk);
+    }
+    return ageChunk;
+}
+
 function initializeAges() {
-    cellAges.clear();
+    ageChunks.clear();
     for (let [key, chunk] of chunks) {
         const [cx, cy] = key.split(',').map(Number);
-        const x0 = cx * CHUNK_SIZE;
-        const y0 = cy * CHUNK_SIZE;
+        const ageChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
         
         for (let ly = 0; ly < CHUNK_SIZE; ly++) {
             const word = chunk[ly];
             if (word === 0) continue;
-            for (let lx = 0; lx < 32; lx++) {
+            for (let lx = 0; lx < BITS; lx++) {
                 if ((word >>> lx) & 1) {
-                    cellAges.set(`${x0 + lx},${y0 + ly}`, 1);
+                    ageChunk[ly * CHUNK_SIZE + lx] = 1;
                 }
             }
         }
+        ageChunks.set(key, ageChunk);
     }
 }
 
 function updateAges(newChunks) {
-    const newAges = new Map();
+    const newAgeChunks = new Map();
     
     for (let [key, chunk] of newChunks) {
         const [cx, cy] = key.split(',').map(Number);
-        const x0 = cx * CHUNK_SIZE;
-        const y0 = cy * CHUNK_SIZE;
+        const oldAgeChunk = ageChunks.get(key);
+        const newAgeChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
         
         for (let ly = 0; ly < CHUNK_SIZE; ly++) {
             const word = chunk[ly];
             if (word === 0) continue;
-            for (let lx = 0; lx < 32; lx++) {
+            for (let lx = 0; lx < BITS; lx++) {
                 if ((word >>> lx) & 1) {
-                    const cellKey = `${x0 + lx},${y0 + ly}`;
-                    const oldAge = cellAges.get(cellKey) || 0;
-                    newAges.set(cellKey, oldAge + 1);
+                    const idx = ly * CHUNK_SIZE + lx;
+                    const oldAge = oldAgeChunk ? oldAgeChunk[idx] : 0;
+                    // Cap at 255 (Uint8 max)
+                    newAgeChunk[idx] = oldAge < 255 ? oldAge + 1 : 255;
                 }
             }
         }
+        newAgeChunks.set(key, newAgeChunk);
     }
     
-    cellAges = newAges;
+    ageChunks = newAgeChunks;
+}
+
+function getCellAge(x, y) {
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cy = Math.floor(y / CHUNK_SIZE);
+    const lx = (x % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+    const ly = (y % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+    
+    const ageChunk = ageChunks.get(getChunkKey(cx, cy));
+    if (!ageChunk) return 0;
+    return ageChunk[ly * CHUNK_SIZE + lx];
 }
 
 function sendUpdate() {
@@ -713,33 +933,42 @@ function sendUpdate() {
         }
     }
     
-    // Also need total population?
-    // The above loop only counts visible population.
-    // To count total population, we need to iterate all chunks.
-    // Let's just show Visible Population for now? Or iterate all chunks cheaply?
-    // Let's iterate all chunks for stats.
-    let totalPop = 0;
-    for(let c of chunks.values()) {
-        for(let w of c) {
-             if(w) {
-                 // Count set bits
-                 let n = w;
-                 while(n > 0) { n &= (n-1); totalPop++; }
-             }
-        }
-    }
+    // Use running population counter (maintained incrementally during step/load/etc)
 
-    // Build age buffer if age tracking enabled
+    // Build age buffer if age tracking enabled (using chunk-aligned extraction)
     let ageBuffer = null;
     if (ageTrackingEnabled) {
         ageBuffer = new Uint8Array(viewW * viewH);
-        for (let vy = 0; vy < viewH; vy++) {
-            for (let vx = 0; vx < viewW; vx++) {
-                const gx = viewX + vx;
-                const gy = viewY + vy;
-                const age = cellAges.get(`${gx},${gy}`) || 0;
-                // Clamp to 255
-                ageBuffer[vy * viewW + vx] = Math.min(age, 255);
+        
+        // Iterate age chunks that intersect viewport (same logic as cell buffer)
+        for (let cy = startCy; cy <= endCy; cy++) {
+            for (let cx = startCx; cx <= endCx; cx++) {
+                const ageChunk = ageChunks.get(getChunkKey(cx, cy));
+                if (!ageChunk) continue;
+                
+                const chunkX = cx * CHUNK_SIZE;
+                const chunkY = cy * CHUNK_SIZE;
+                
+                const intersectX = Math.max(viewX, chunkX);
+                const intersectY = Math.max(viewY, chunkY);
+                const intersectW = Math.min(viewX + viewW, chunkX + CHUNK_SIZE) - intersectX;
+                const intersectH = Math.min(viewY + viewH, chunkY + CHUNK_SIZE) - intersectY;
+                
+                if (intersectW <= 0 || intersectH <= 0) continue;
+                
+                for (let y = 0; y < intersectH; y++) {
+                    const globalY = intersectY + y;
+                    const srcY = globalY - chunkY;
+                    const destY = globalY - viewY;
+                    
+                    for (let x = 0; x < intersectW; x++) {
+                        const globalX = intersectX + x;
+                        const srcX = globalX - chunkX;
+                        const destX = globalX - viewX;
+                        
+                        ageBuffer[destY * viewW + destX] = ageChunk[srcY * CHUNK_SIZE + srcX];
+                    }
+                }
             }
         }
     }
@@ -747,7 +976,7 @@ function sendUpdate() {
     const payload = {
         grid: buffer,
         generation: generation,
-        pop: totalPop,
+        pop: totalPopulation,
         running: running,
         packed: true
     };
