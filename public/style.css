@@ -96,7 +96,7 @@ canvas { display: block; image-rendering: pixelated; }
 }
 
 .fps-overlay {
-    position: absolute; top: 10px; left: 10px;
+    position: absolute; bottom: 10px; left: 10px;
     background: rgba(46, 52, 64, 0.8); padding: 4px 8px;
     font-size: 0.7rem; color: var(--success); border-radius: 3px;
     font-family: 'Fira Code', monospace; pointer-events: none;
@@ -139,9 +139,22 @@ canvas { display: block; image-rendering: pixelated; }
 .color-swatch:hover { transform: scale(1.1); border-color: var(--text); }
 .color-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
 
+/* Footer Graph */
+.footer-graph {
+    padding: 10px 20px;
+    border-top: 1px solid var(--bg-lighter);
+    flex-shrink: 0;
+}
+.footer-graph canvas {
+    width: 100%;
+    height: 50px;
+    border-radius: 4px;
+    background: var(--bg);
+}
+
 /* Branding Footer */
 .branding {
-    padding: 15px 20px;
+    padding: 10px 20px;
     border-top: 1px solid var(--bg-lighter);
     text-align: center;
     flex-shrink: 0;

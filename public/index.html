@@ -39,36 +39,12 @@
         <div class="header">
             <h1>> LIFE_ENGINE</h1>
             <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
-            <canvas id="pop-graph" width="280" height="40" style="margin-top: 8px; border-radius: 4px; background: var(--bg);"></canvas>
             <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
         </div>
 
         <div class="controls">
-            <!-- Rules -->
+            <!-- Playback (first, no title) -->
             <div class="group">
-                <div class="label">Automaton Rule</div>
-                <select id="rule-preset">
-                    <option value="B3/S23">Conway Life (B3/S23)</option>
-                    <option value="B36/S23">HighLife (B36/S23)</option>
-                    <option value="B2/S">Seeds (B2/S)</option>
-                    <option value="B3/S012345678">Life without Death</option>
-                    <option value="B3/S12345">Maze (B3/S12345)</option>
-                    <option value="B368/S245">Morley (B368/S245)</option>
-                    <option value="B1357/S1357">Replicator</option>
-                    <option value="B35678/S5678">Diamoeba</option>
-                    <option value="B4678/S35678">Anneal</option>
-                    <option value="B34/S34">34 Life</option>
-                    <option value="custom">Custom...</option>
-                </select>
-                <div class="row" id="custom-rule-row" style="display: none;">
-                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
-                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
-                </div>
-            </div>
-
-            <!-- Playback -->
-            <div class="group">
-                <div class="label">Time Control</div>
                 <div class="row">
                     <button id="btn-play">Play</button>
                     <button id="btn-step">Step +</button>
@@ -90,8 +66,33 @@
                     <input type="number" id="history-size" min="5" max="100" value="20" style="width: 50px; text-align: center;" disabled>
                     <span style="font-size: 0.7rem; color: var(--text-dim);">steps</span>
                 </div>
-                <input type="range" id="speed-range" min="0" max="66" value="36" step="1">
-                <div class="label" style="text-align:right" id="speed-label">30 FPS</div>
+                <div class="label">Speed</div>
+                <div class="row" style="align-items: center; gap: 8px;">
+                    <input type="range" id="speed-range" min="0" max="66" value="36" step="1" style="flex: 1;">
+                    <span id="speed-label" style="font-size: 0.75rem; min-width: 55px; text-align: right;">30 FPS</span>
+                </div>
+            </div>
+
+            <!-- Rules -->
+            <div class="group">
+                <div class="label">Automaton Rule</div>
+                <select id="rule-preset">
+                    <option value="B3/S23">Conway Life (B3/S23)</option>
+                    <option value="B36/S23">HighLife (B36/S23)</option>
+                    <option value="B2/S">Seeds (B2/S)</option>
+                    <option value="B3/S012345678">Life without Death</option>
+                    <option value="B3/S12345">Maze (B3/S12345)</option>
+                    <option value="B368/S245">Morley (B368/S245)</option>
+                    <option value="B1357/S1357">Replicator</option>
+                    <option value="B35678/S5678">Diamoeba</option>
+                    <option value="B4678/S35678">Anneal</option>
+                    <option value="B34/S34">34 Life</option>
+                    <option value="custom">Custom...</option>
+                </select>
+                <div class="row" id="custom-rule-row" style="display: none;">
+                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
+                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
+                </div>
             </div>
 
             <!-- Zoom / Grid Size -->
@@ -135,11 +136,11 @@
 
             <!-- Randomize -->
             <div class="group">
-                <div class="label">Density</div>
-                <input type="range" id="density-range" min="5" max="95" value="25">
-                <div class="label" style="text-align:right" id="density-label">25%</div>
-                <div class="row">
-                    <button id="btn-rand">Randomize</button>
+                <div class="label">Randomize</div>
+                <div class="row" style="align-items: center; gap: 8px;">
+                    <input type="range" id="density-range" min="5" max="95" value="25" style="flex: 1;">
+                    <span id="density-label" style="font-size: 0.75rem; min-width: 30px;">25%</span>
+                    <button id="btn-rand" style="flex: 0; white-space: nowrap;">Go</button>
                 </div>
             </div>
 
@@ -177,15 +178,18 @@
             </div>
         </div>
 
+        <!-- Population Graph -->
+        <div class="footer-graph">
+            <canvas id="pop-graph" width="280" height="50"></canvas>
+        </div>
+
         <!-- Branding -->
         <div class="branding">
-            <div class="brand-title">Life Engine</div>
             <div class="brand-links">
                 <a href="https://github.com/mathieu/gol-webui" target="_blank">Source</a>
                 <span>|</span>
                 <a href="https://conwaylife.com/wiki/" target="_blank">LifeWiki</a>
             </div>
-            <div class="brand-copy">A Conway's Game of Life implementation</div>
         </div>
     </div>
 </aside>
