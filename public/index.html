@@ -116,23 +116,10 @@
                     <button id="btn-reset-pattern" title="Reset to base orientation">⟲</button>
                 </div>
                 <select id="pattern-select">
-                    <option value="glider">Glider</option>
-                    <option value="lwss">Lightweight SS</option>
-                    <option value="pulsar">Pulsar</option>
-                    <option value="gosper">Gosper Gun</option>
-                    <option value="block">Block</option>
-                    <option value="beehive">Beehive</option>
+                    <!-- Populated dynamically with optgroups -->
                 </select>
-            </div>
-
-            <!-- Pattern Library -->
-            <div class="group">
-                <div class="label" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="togglePatternLibrary()">
-                    <span>Pattern Library</span>
-                    <span id="library-toggle-icon">+</span>
-                </div>
-                <div id="pattern-library" style="display: none; max-height: 200px; overflow-y: auto;">
-                    <!-- Dynamically populated -->
+                <div class="row">
+                    <button id="btn-load-pattern" title="Load pattern to grid (replaces current)">Load to Grid</button>
                 </div>
             </div>
 

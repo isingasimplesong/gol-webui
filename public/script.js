@@ -211,19 +211,8 @@ function getHeatmapColor(intensity) {
     return `rgb(${r},${g},${b})`;
 }
 
-// Standard patterns (for paste mode)
-const BASE_PATTERNS = {
-    glider: [[0,1],[1,2],[2,0],[2,1],[2,2]],
-    lwss: [[0,1],[0,4],[1,0],[2,0],[3,0],[3,4],[4,0],[4,1],[4,2],[4,3]],
-    block: [[0,0],[0,1],[1,0],[1,1]],
-    beehive: [[0,1],[0,2],[1,0],[1,3],[2,1],[2,2]],
-    pulsar: [[2,4],[2,5],[2,6],[2,10],[2,11],[2,12],[4,2],[4,7],[4,9],[4,14],[5,2],[5,7],[5,9],[5,14],[6,2],[6,7],[6,9],[6,14],[7,4],[7,5],[7,6],[7,10],[7,11],[7,12],[9,4],[9,5],[9,6],[9,10],[9,11],[9,12],[10,2],[10,7],[10,9],[10,14],[11,2],[11,7],[11,9],[11,14],[12,2],[12,7],[12,9],[12,14],[14,4],[14,5],[14,6],[14,10],[14,11],[14,12]],
-    gosper: [[5,1],[5,2],[6,1],[6,2],[5,11],[6,11],[7,11],[4,12],[8,12],[3,13],[9,13],[3,14],[9,14],[6,15],[4,16],[8,16],[5,17],[6,17],[7,17],[6,18],[3,21],[4,21],[5,21],[3,22],[4,22],[5,22],[2,23],[6,23],[1,25],[2,25],[6,25],[7,25],[3,35],[4,35],[3,36],[4,36]]
-};
-
-let CURRENT_PATTERNS = JSON.parse(JSON.stringify(BASE_PATTERNS));
-
 // Pattern Library - RLE-encoded patterns from LifeWiki
+// Organized by category for dropdown optgroups
 const PATTERN_LIBRARY = {
     'Still Lifes': {
         'Block': 'oo$oo!',
@@ -268,17 +257,108 @@ const PATTERN_LIBRARY = {
     }
 };
 
-// Load pattern from library (places at 0,0 and centers view)
-function loadLibraryPattern(category, name) {
-    const rle = PATTERN_LIBRARY[category]?.[name];
-    if (!rle) {
+// Convert RLE to coordinate array for paste mode
+function rleToCoords(rle) {
+    const coords = [];
+    let x = 0, y = 0, count = 0;
+    
+    for (let i = 0; i < rle.length; i++) {
+        const char = rle[i];
+        if (char >= '0' && char <= '9') {
+            count = count * 10 + parseInt(char);
+        } else if (char === 'b' || char === '.') {
+            x += (count || 1);
+            count = 0;
+        } else if (char === 'o' || char === '*') {
+            const run = count || 1;
+            for (let k = 0; k < run; k++) {
+                coords.push([x + k, y]);
+            }
+            x += run;
+            count = 0;
+        } else if (char === '$') {
+            y += (count || 1);
+            x = 0;
+            count = 0;
+        } else if (char === '!') {
+            break;
+        }
+    }
+    return coords;
+}
+
+// Build pattern cache from library (for paste mode)
+let PATTERN_CACHE = {};
+
+function buildPatternCache() {
+    PATTERN_CACHE = {};
+    for (const [category, patterns] of Object.entries(PATTERN_LIBRARY)) {
+        for (const [name, rle] of Object.entries(patterns)) {
+            const key = `${category}::${name}`;
+            PATTERN_CACHE[key] = rleToCoords(rle);
+        }
+    }
+}
+
+// Current pattern for paste mode (key into PATTERN_CACHE or custom coords)
+let currentPatternKey = 'Spaceships::Glider';
+let currentPatternCoords = null; // Cache of current pattern coords (may be rotated)
+
+function getCurrentPattern() {
+    if (!currentPatternCoords) {
+        currentPatternCoords = PATTERN_CACHE[currentPatternKey] 
+            ? [...PATTERN_CACHE[currentPatternKey].map(c => [...c])]
+            : [[0,0]];
+    }
+    return currentPatternCoords;
+}
+
+function resetCurrentPattern() {
+    currentPatternCoords = PATTERN_CACHE[currentPatternKey]
+        ? [...PATTERN_CACHE[currentPatternKey].map(c => [...c])]
+        : [[0,0]];
+}
+
+// Load pattern from library to grid (replaces current pattern)
+function loadPatternToGrid(patternKey) {
+    const coords = PATTERN_CACHE[patternKey];
+    if (!coords || coords.length === 0) {
         toast('Pattern not found', true);
         return;
     }
-    loadFromRLE(`x = 0, y = 0\n${rle}`);
-    ui.viewX = -10;
-    ui.viewY = -10;
-    ui.worker.postMessage({ type: 'viewportMove', payload: { x: ui.viewX, y: ui.viewY } });
+    
+    // Build RLE from coords for loading
+    const [category, name] = patternKey.split('::');
+    const rle = PATTERN_LIBRARY[category]?.[name];
+    if (rle) {
+        loadFromRLE(`x = 0, y = 0\n${rle}`);
+        ui.viewX = -10;
+        ui.viewY = -10;
+        ui.worker.postMessage({ type: 'viewportMove', payload: { x: ui.viewX, y: ui.viewY } });
+    }
+}
+
+// Populate pattern dropdown with optgroups
+function populatePatternDropdown() {
+    const select = document.getElementById('pattern-select');
+    select.innerHTML = '';
+    
+    for (const [category, patterns] of Object.entries(PATTERN_LIBRARY)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = category;
+        
+        for (const name of Object.keys(patterns)) {
+            const option = document.createElement('option');
+            option.value = `${category}::${name}`;
+            option.textContent = name;
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+    
+    // Select Glider by default
+    select.value = 'Spaceships::Glider';
 }
 
 class UI {
@@ -305,7 +385,6 @@ class UI {
         this.isRunning = false;
         this.mouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
         this.mode = 'draw';
-        this.selectedPattern = 'glider';
         
         // Population history for graph
         this.popHistory = [];
@@ -456,7 +535,7 @@ class UI {
         if (this.mode === 'paste' && !this.isRunning) {
             const sz = cellSize > 1 ? cellSize - 1 : 1;
             this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
-            const p = CURRENT_PATTERNS[this.selectedPattern];
+            const p = getCurrentPattern();
             const mx = Math.floor(this.mouse.x / cellSize);
             const my = Math.floor(this.mouse.y / cellSize);
             
@@ -620,6 +699,12 @@ class UI {
  * Interaction
  */
 const canvas = document.getElementById('grid');
+
+// Initialize pattern system
+buildPatternCache();
+populatePatternDropdown();
+resetCurrentPattern();
+
 const ui = new UI(canvas);
 const statDisplay = document.getElementById('stat-display');
 
@@ -806,16 +891,21 @@ document.querySelectorAll('.tool-btn').forEach(b => {
 // Pattern selection resets to base orientation (intentional design choice)
 // This avoids confusion when switching patterns mid-rotation
 document.getElementById('pattern-select').onchange = (e) => {
-    ui.selectedPattern = e.target.value;
-    CURRENT_PATTERNS[ui.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[ui.selectedPattern]));
+    currentPatternKey = e.target.value;
+    resetCurrentPattern();
     document.querySelector('[data-mode="paste"]').click();
 };
 document.getElementById('btn-rotate').onclick = actions.rotate;
 
 // Reset pattern to base orientation
 document.getElementById('btn-reset-pattern')?.addEventListener('click', () => {
-    CURRENT_PATTERNS[ui.selectedPattern] = JSON.parse(JSON.stringify(BASE_PATTERNS[ui.selectedPattern]));
+    resetCurrentPattern();
     toast("Pattern reset");
+});
+
+// Load pattern to grid button
+document.getElementById('btn-load-pattern')?.addEventListener('click', () => {
+    loadPatternToGrid(currentPatternKey);
 });
 
 // Color picker
@@ -867,7 +957,7 @@ document.getElementById('webgl-toggle').onchange = (e) => {
 };
 
 function rotateCurrentPattern() {
-    const p = CURRENT_PATTERNS[ui.selectedPattern];
+    const p = getCurrentPattern();
     let minX = Infinity, minY = Infinity;
     const rotated = p.map(([x, y]) => {
         const nx = -y;
@@ -877,7 +967,7 @@ function rotateCurrentPattern() {
         return [nx, ny];
     });
     const normalized = rotated.map(([x, y]) => [x - minX, y - minY]);
-    CURRENT_PATTERNS[ui.selectedPattern] = normalized;
+    currentPatternCoords = normalized;
     toast("Rotated");
 }
 
@@ -977,7 +1067,7 @@ function applyTool() {
     } else if (ui.mode === 'erase') {
         ui.worker.postMessage({ type: 'setCell', payload: { idx, val: 0 }});
     } else if (ui.mode === 'paste' && ui.mouse.down) {
-        const p = CURRENT_PATTERNS[ui.selectedPattern];
+        const p = getCurrentPattern();
         const updates = [];
         for (let [px, py] of p) {
             const targetIdx = ui.idx(x + px, y + py);
@@ -1038,49 +1128,6 @@ const toast = (txt, isError = false) => {
     el.style.opacity = 1;
     setTimeout(() => el.style.opacity = 0, 2000);
 };
-
-// Pattern Library
-function togglePatternLibrary() {
-    const lib = document.getElementById('pattern-library');
-    const icon = document.getElementById('library-toggle-icon');
-    if (lib.style.display === 'none') {
-        lib.style.display = 'block';
-        icon.textContent = '-';
-        populatePatternLibrary();
-    } else {
-        lib.style.display = 'none';
-        icon.textContent = '+';
-    }
-}
-
-function populatePatternLibrary() {
-    const container = document.getElementById('pattern-library');
-    if (container.children.length > 0) return; // Already populated
-    
-    for (const [category, patterns] of Object.entries(PATTERN_LIBRARY)) {
-        const catDiv = document.createElement('div');
-        catDiv.style.marginBottom = '8px';
-        
-        const catLabel = document.createElement('div');
-        catLabel.textContent = category;
-        catLabel.style.cssText = 'font-size: 0.7rem; color: var(--primary); margin-bottom: 4px; font-weight: bold;';
-        catDiv.appendChild(catLabel);
-        
-        const btnContainer = document.createElement('div');
-        btnContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
-        
-        for (const name of Object.keys(patterns)) {
-            const btn = document.createElement('button');
-            btn.textContent = name;
-            btn.style.cssText = 'font-size: 0.65rem; padding: 3px 6px; flex: 0 0 auto;';
-            btn.onclick = () => loadLibraryPattern(category, name);
-            btnContainer.appendChild(btn);
-        }
-        
-        catDiv.appendChild(btnContainer);
-        container.appendChild(catDiv);
-    }
-}
 
 // Rule Selection
 document.getElementById('rule-preset').onchange = (e) => {
