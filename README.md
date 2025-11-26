@@ -1,6 +1,8 @@
 # Life Engine
 
-A high-performance, infinite-grid implementation of Conway's Game of Life with a polished web UI
+A high-performance, infinite-grid implementation of Conway's Game of Life with a polished web UI.
+
+**[🎮 Live Demo](https://gol-webui.sawfish.cc/)** | **[☕ Donate](https://ko-fi.com/golwebui)**
 
 ## Features
 

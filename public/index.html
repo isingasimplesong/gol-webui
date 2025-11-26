@@ -1,201 +1,217 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conway's Time Machine</title>
+    <title>Life engine</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<main id="canvas-container">
-    <canvas id="grid"></canvas>
-    <div id="msg" class="overlay-msg">Saved</div>
-    <div id="fps-display" class="fps-overlay">-- FPS</div>
+    <main id="canvas-container">
+        <canvas id="grid"></canvas>
+        <div id="msg" class="overlay-msg">Saved</div>
+        <div id="fps-display" class="fps-overlay">-- FPS</div>
 
-    <!-- Help Modal -->
-    <div id="help-modal" class="modal-overlay">
-        <div class="modal">
-            <h2>> KEYBOARD_SHORTCUTS</h2>
-            <div class="key-list">
-                <div class="key-item"><span>Toggle Play / Pause</span> <span class="key-bg">SPACE</span></div>
-                <div class="key-item"><span>Step Forward</span> <span class="key-bg">→</span></div>
-                <div class="key-item"><span>Step Backward</span> <span class="key-bg">←</span></div>
-                <div class="key-item"><span>Clear Grid</span> <span class="key-bg">C</span></div>
-                <div class="key-item"><span>Rotate Pattern</span> <span class="key-bg">R</span></div>
-                <div class="key-item"><span>Decrease Speed</span> <span class="key-bg">[</span></div>
-                <div class="key-item"><span>Increase Speed</span> <span class="key-bg">]</span></div>
-                <div class="key-item"><span>Toggle Sidebar</span> <span class="key-bg">TAB</span></div>
-                <div class="key-item"><span>Toggle Help</span> <span class="key-bg">Ctrl + /</span></div>
-            </div>
-            <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
-        </div>
-    </div>
-</main>
-
-<aside id="sidebar">
-    <button id="panel-toggle" class="panel-toggle" title="Toggle Sidebar">›</button>
-    <div class="sidebar-inner">
-        <div class="header">
-            <h1>> LIFE_ENGINE</h1>
-            <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
-            <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
-        </div>
-
-        <div class="controls">
-            <!-- Playback (first, no title) -->
-            <div class="group">
-                <div class="row">
-                    <button id="btn-play">Play</button>
-                    <button id="btn-step">Step +</button>
+        <!-- Help Modal -->
+        <div id="help-modal" class="modal-overlay">
+            <div class="modal">
+                <h2>> KEYBOARD_SHORTCUTS</h2>
+                <div class="key-list">
+                    <div class="key-item"><span>Toggle Play / Pause</span> <span class="key-bg">SPACE</span></div>
+                    <div class="key-item"><span>Step Forward</span> <span class="key-bg">→</span></div>
+                    <div class="key-item"><span>Step Backward</span> <span class="key-bg">←</span></div>
+                    <div class="key-item"><span>Clear Grid</span> <span class="key-bg">C</span></div>
+                    <div class="key-item"><span>Rotate Pattern</span> <span class="key-bg">R</span></div>
+                    <div class="key-item"><span>Decrease Speed</span> <span class="key-bg">[</span></div>
+                    <div class="key-item"><span>Increase Speed</span> <span class="key-bg">]</span></div>
+                    <div class="key-item"><span>Toggle Sidebar</span> <span class="key-bg">TAB</span></div>
+                    <div class="key-item"><span>Toggle Help</span> <span class="key-bg">Ctrl + /</span></div>
                 </div>
-                <div class="row">
-                    <button id="btn-clear" style="color: var(--error)">Kill All</button>
-                    <button id="btn-rev-step" disabled>Step -</button>
-                </div>
-                <div class="row" style="align-items: center;">
-                    <span style="font-size: 0.75rem; white-space: nowrap;">Jump to:</span>
-                    <input type="number" id="jump-gen" min="1" value="1000" style="width: 70px; text-align: center;">
-                    <button id="btn-jump" style="flex: 0;">Go</button>
-                </div>
-                <div class="row" style="align-items: center;">
-                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
-                        <input type="checkbox" id="history-toggle">
-                        <span style="font-size: 0.75rem;">History</span>
-                    </label>
-                    <input type="number" id="history-size" min="5" max="100" value="20" style="width: 50px; text-align: center;" disabled>
-                    <span style="font-size: 0.7rem; color: var(--text-dim);">steps</span>
-                </div>
-                <div class="label">Speed</div>
-                <div class="row" style="align-items: center; gap: 8px;">
-                    <input type="range" id="speed-range" min="0" max="66" value="36" step="1" style="flex: 1;">
-                    <span id="speed-label" style="font-size: 0.75rem; min-width: 55px; text-align: right;">30 FPS</span>
-                </div>
-            </div>
-
-            <!-- Zoom / Grid Size -->
-            <div class="group">
-                <div class="label">Zoom Level</div>
-                <div class="row" style="align-items: center; gap: 8px;">
-                    <input type="range" id="zoom-range" min="2" max="40" value="10" style="flex: 1;">
-                    <span id="zoom-label" style="font-size: 0.75rem; min-width: 35px; text-align: right;">10px</span>
-                </div>
-            </div>
-
-            <!-- Tools -->
-            <div class="group">
-                <div class="label">Interaction Mode</div>
-                <div class="row">
-                    <button class="tool-btn active" data-mode="draw">Draw</button>
-                    <button class="tool-btn" data-mode="erase">Erase</button>
-                    <button class="tool-btn" data-mode="move" title="Drag to Pan">Move</button>
-                    <button id="btn-center" title="Center View (0,0)">⌖</button>
-                </div>
-                <div class="row">
-                    <button class="tool-btn" data-mode="paste">Paste</button>
-                    <button id="btn-load-pattern" title="Load pattern to grid (replaces current)">Load</button>
-                    <button id="btn-rotate" title="Rotate 90°">↻</button>
-                    <button id="btn-reset-pattern" title="Reset to base orientation">⟲</button>
-                </div>
-                <select id="pattern-select">
-                    <!-- Populated dynamically with optgroups -->
-                </select>
-            </div>
-
-            <!-- Import/Export -->
-            <div class="group">
-                <div class="label">File</div>
-                <div class="row">
-                    <button id="btn-export">Export</button>
-                    <button id="btn-import-trigger">Import</button>
-                    <input type="file" id="file-import" accept=".json,.rle,.txt,.mc" style="display: none">
-                </div>
-            </div>
-
-            <!-- Randomize -->
-            <div class="group">
-                <div class="label">Randomize</div>
-                <div class="row" style="align-items: center; gap: 8px;">
-                    <input type="range" id="density-range" min="5" max="95" value="25" style="flex: 1;">
-                    <span id="density-label" style="font-size: 0.75rem; min-width: 30px;">25%</span>
-                    <button id="btn-rand" style="flex: 0; white-space: nowrap;">Go</button>
-                </div>
-            </div>
-
-            <!-- Colors -->
-            <div class="group">
-                <div class="label">Cell Color</div>
-                <div class="color-picker">
-                    <button class="color-swatch active" data-color="#A3BE8C" style="background: #A3BE8C;" title="Nord Green"></button>
-                    <button class="color-swatch" data-color="#88C0D0" style="background: #88C0D0;" title="Nord Frost"></button>
-                    <button class="color-swatch" data-color="#81A1C1" style="background: #81A1C1;" title="Nord Blue"></button>
-                    <button class="color-swatch" data-color="#B48EAD" style="background: #B48EAD;" title="Nord Purple"></button>
-                    <button class="color-swatch" data-color="#EBCB8B" style="background: #EBCB8B;" title="Nord Yellow"></button>
-                    <button class="color-swatch" data-color="#D08770" style="background: #D08770;" title="Nord Orange"></button>
-                    <button class="color-swatch" data-color="#BF616A" style="background: #BF616A;" title="Nord Red"></button>
-                    <button class="color-swatch" data-color="#ECEFF4" style="background: #ECEFF4;" title="Nord Snow"></button>
-                </div>
-                <div class="row" style="align-items: center; margin-top: 5px;">
-                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
-                        <input type="checkbox" id="age-color-toggle">
-                        <span style="font-size: 0.75rem;">Age gradient</span>
-                    </label>
-                </div>
-                <div class="row" style="align-items: center; margin-top: 5px;">
-                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
-                        <input type="checkbox" id="heatmap-toggle">
-                        <span style="font-size: 0.75rem;">Activity heatmap</span>
-                    </label>
-                </div>
-                <div class="row" style="align-items: center; margin-top: 5px;">
-                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
-                        <input type="checkbox" id="webgl-toggle">
-                        <span style="font-size: 0.75rem;">WebGL renderer</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Rules -->
-            <div class="group">
-                <div class="label">Automaton Rule</div>
-                <select id="rule-preset">
-                    <option value="B3/S23">Conway Life (B3/S23)</option>
-                    <option value="B36/S23">HighLife (B36/S23)</option>
-                    <option value="B2/S">Seeds (B2/S)</option>
-                    <option value="B3/S012345678">Life without Death</option>
-                    <option value="B3/S12345">Maze (B3/S12345)</option>
-                    <option value="B368/S245">Morley (B368/S245)</option>
-                    <option value="B1357/S1357">Replicator</option>
-                    <option value="B35678/S5678">Diamoeba</option>
-                    <option value="B4678/S35678">Anneal</option>
-                    <option value="B34/S34">34 Life</option>
-                    <option value="custom">Custom...</option>
-                </select>
-                <div class="row" id="custom-rule-row" style="display: none;">
-                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
-                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
-                </div>
+                <div class="close-hint">Press <span class="key-bg">ESC</span> to close</div>
             </div>
         </div>
+    </main>
 
-        <!-- Population Graph -->
-        <div class="footer-graph">
-            <canvas id="pop-graph" width="280" height="50"></canvas>
-        </div>
+    <aside id="sidebar">
+        <button id="panel-toggle" class="panel-toggle" title="Toggle Sidebar">›</button>
+        <div class="sidebar-inner">
+            <div class="header">
+                <h1>> LIFE_ENGINE</h1>
+                <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
+                <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span
+                        style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
+            </div>
 
-        <!-- Branding -->
-        <div class="branding">
-            <div class="brand-links">
-                <a href="https://github.com/mathieu/gol-webui" target="_blank">Source</a>
-                <span>|</span>
-                <a href="https://conwaylife.com/wiki/" target="_blank">LifeWiki</a>
-                <span>|</span>
-                <a href="https://ko-fi.com/golwebui" target="_blank">Donate</a>
+            <div class="controls">
+                <!-- Playback (first, no title) -->
+                <div class="group">
+                    <div class="row">
+                        <button id="btn-play">Play</button>
+                        <button id="btn-step">Step +</button>
+                    </div>
+                    <div class="row">
+                        <button id="btn-clear" style="color: var(--error)">Kill All</button>
+                        <button id="btn-rev-step" disabled>Step -</button>
+                    </div>
+                    <div class="row" style="align-items: center;">
+                        <span style="font-size: 0.75rem; white-space: nowrap;">Jump to:</span>
+                        <input type="number" id="jump-gen" min="1" value="1000"
+                            style="width: 70px; text-align: center;">
+                        <button id="btn-jump" style="flex: 0;">Go</button>
+                    </div>
+                    <div class="row" style="align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                            <input type="checkbox" id="history-toggle">
+                            <span style="font-size: 0.75rem;">History</span>
+                        </label>
+                        <input type="number" id="history-size" min="5" max="100" value="20"
+                            style="width: 50px; text-align: center;" disabled>
+                        <span style="font-size: 0.7rem; color: var(--text-dim);">steps</span>
+                    </div>
+                    <div class="label">Speed</div>
+                    <div class="row" style="align-items: center; gap: 8px;">
+                        <input type="range" id="speed-range" min="0" max="66" value="36" step="1" style="flex: 1;">
+                        <span id="speed-label" style="font-size: 0.75rem; min-width: 55px; text-align: right;">30
+                            FPS</span>
+                    </div>
+                </div>
+
+                <!-- Zoom / Grid Size -->
+                <div class="group">
+                    <div class="label">Zoom Level</div>
+                    <div class="row" style="align-items: center; gap: 8px;">
+                        <input type="range" id="zoom-range" min="2" max="40" value="10" style="flex: 1;">
+                        <span id="zoom-label"
+                            style="font-size: 0.75rem; min-width: 35px; text-align: right;">10px</span>
+                    </div>
+                </div>
+
+                <!-- Tools -->
+                <div class="group">
+                    <div class="label">Interaction Mode</div>
+                    <div class="row">
+                        <button class="tool-btn active" data-mode="draw">Draw</button>
+                        <button class="tool-btn" data-mode="erase">Erase</button>
+                        <button class="tool-btn" data-mode="move" title="Drag to Pan">Move</button>
+                        <button id="btn-center" title="Center View (0,0)">⌖</button>
+                    </div>
+                    <div class="row">
+                        <button class="tool-btn" data-mode="paste">Paste</button>
+                        <button id="btn-load-pattern" title="Load pattern to grid (replaces current)">Load</button>
+                        <button id="btn-rotate" title="Rotate 90°">↻</button>
+                        <button id="btn-reset-pattern" title="Reset to base orientation">⟲</button>
+                    </div>
+                    <select id="pattern-select">
+                        <!-- Populated dynamically with optgroups -->
+                    </select>
+                </div>
+
+                <!-- Import/Export -->
+                <div class="group">
+                    <div class="label">File</div>
+                    <div class="row">
+                        <button id="btn-export">Export</button>
+                        <button id="btn-import-trigger">Import</button>
+                        <input type="file" id="file-import" accept=".json,.rle,.txt,.mc" style="display: none">
+                    </div>
+                </div>
+
+                <!-- Randomize -->
+                <div class="group">
+                    <div class="label">Randomize</div>
+                    <div class="row" style="align-items: center; gap: 8px;">
+                        <input type="range" id="density-range" min="5" max="95" value="25" style="flex: 1;">
+                        <span id="density-label" style="font-size: 0.75rem; min-width: 30px;">25%</span>
+                        <button id="btn-rand" style="flex: 0; white-space: nowrap;">Go</button>
+                    </div>
+                </div>
+
+                <!-- Colors -->
+                <div class="group">
+                    <div class="label">Cell Color</div>
+                    <div class="color-picker">
+                        <button class="color-swatch active" data-color="#A3BE8C" style="background: #A3BE8C;"
+                            title="Nord Green"></button>
+                        <button class="color-swatch" data-color="#88C0D0" style="background: #88C0D0;"
+                            title="Nord Frost"></button>
+                        <button class="color-swatch" data-color="#81A1C1" style="background: #81A1C1;"
+                            title="Nord Blue"></button>
+                        <button class="color-swatch" data-color="#B48EAD" style="background: #B48EAD;"
+                            title="Nord Purple"></button>
+                        <button class="color-swatch" data-color="#EBCB8B" style="background: #EBCB8B;"
+                            title="Nord Yellow"></button>
+                        <button class="color-swatch" data-color="#D08770" style="background: #D08770;"
+                            title="Nord Orange"></button>
+                        <button class="color-swatch" data-color="#BF616A" style="background: #BF616A;"
+                            title="Nord Red"></button>
+                        <button class="color-swatch" data-color="#ECEFF4" style="background: #ECEFF4;"
+                            title="Nord Snow"></button>
+                    </div>
+                    <div class="row" style="align-items: center; margin-top: 5px;">
+                        <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                            <input type="checkbox" id="age-color-toggle">
+                            <span style="font-size: 0.75rem;">Age gradient</span>
+                        </label>
+                    </div>
+                    <div class="row" style="align-items: center; margin-top: 5px;">
+                        <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                            <input type="checkbox" id="heatmap-toggle">
+                            <span style="font-size: 0.75rem;">Activity heatmap</span>
+                        </label>
+                    </div>
+                    <div class="row" style="align-items: center; margin-top: 5px;">
+                        <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                            <input type="checkbox" id="webgl-toggle">
+                            <span style="font-size: 0.75rem;">WebGL renderer</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Rules -->
+                <div class="group">
+                    <div class="label">Automaton Rule</div>
+                    <select id="rule-preset">
+                        <option value="B3/S23">Conway Life (B3/S23)</option>
+                        <option value="B36/S23">HighLife (B36/S23)</option>
+                        <option value="B2/S">Seeds (B2/S)</option>
+                        <option value="B3/S012345678">Life without Death</option>
+                        <option value="B3/S12345">Maze (B3/S12345)</option>
+                        <option value="B368/S245">Morley (B368/S245)</option>
+                        <option value="B1357/S1357">Replicator</option>
+                        <option value="B35678/S5678">Diamoeba</option>
+                        <option value="B4678/S35678">Anneal</option>
+                        <option value="B34/S34">34 Life</option>
+                        <option value="custom">Custom...</option>
+                    </select>
+                    <div class="row" id="custom-rule-row" style="display: none;">
+                        <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
+                        <button id="btn-apply-rule" style="flex: 1;">Apply</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Population Graph -->
+            <div class="footer-graph">
+                <canvas id="pop-graph" width="280" height="50"></canvas>
+            </div>
+
+            <!-- Branding -->
+            <div class="branding">
+                <div class="brand-links">
+                    <a href="https://github.com/mathieu/gol-webui" target="_blank">Source</a>
+                    <span>|</span>
+                    <a href="https://conwaylife.com/wiki/" target="_blank">LifeWiki</a>
+                    <span>|</span>
+                    <a href="https://ko-fi.com/golwebui" target="_blank">Donate</a>
+                </div>
             </div>
         </div>
-    </div>
-</aside>
+    </aside>
 
-<script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
+
 </html>
