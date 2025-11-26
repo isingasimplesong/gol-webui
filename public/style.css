@@ -112,3 +112,39 @@ canvas { display: block; image-rendering: pixelated; }
     font-size: 0.85rem; font-weight: bold; color: var(--success); border: 1px solid var(--text-dim);
 }
 .close-hint { text-align: center; font-size: 0.8rem; color: var(--text-dim); margin-top: 20px; }
+
+/* Color Picker */
+.color-picker {
+    display: flex; gap: 6px; flex-wrap: wrap;
+}
+.color-swatch {
+    width: 28px; height: 28px; border-radius: 4px;
+    border: 2px solid transparent; cursor: pointer;
+    flex: 0 0 auto; padding: 0;
+    transition: transform 0.1s, border-color 0.2s;
+}
+.color-swatch:hover { transform: scale(1.1); border-color: var(--text); }
+.color-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
+
+/* Branding Footer */
+.branding {
+    padding: 15px 20px;
+    border-top: 1px solid var(--bg-lighter);
+    text-align: center;
+    flex-shrink: 0;
+}
+.brand-title {
+    font-size: 0.9rem; font-weight: bold;
+    color: var(--primary); margin-bottom: 5px;
+}
+.brand-links {
+    font-size: 0.7rem; margin-bottom: 5px;
+}
+.brand-links a {
+    color: var(--secondary); text-decoration: none;
+}
+.brand-links a:hover { text-decoration: underline; }
+.brand-links span { color: var(--text-dim); margin: 0 5px; }
+.brand-copy {
+    font-size: 0.6rem; color: var(--text-dim);
+}

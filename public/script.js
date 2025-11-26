@@ -6,7 +6,17 @@ const CONF = {
     gridColor: '#3B4252',
     liveColor: '#A3BE8C',
     deadColor: '#2E3440',
-    error: '#BF616A'
+    error: '#BF616A',
+    useAgeColor: false,
+    // Age gradient: young (bright) -> old (dim)
+    ageColors: [
+        '#ECEFF4', // 0: newborn (bright white)
+        '#A3BE8C', // 1-2: young (green)
+        '#8FBCBB', // 3-5: maturing (teal)
+        '#88C0D0', // 6-10: mature (frost)
+        '#81A1C1', // 11-20: old (blue)
+        '#5E81AC', // 21+: ancient (deep blue)
+    ]
 };
 
 // Standard patterns
@@ -29,6 +39,7 @@ class UI {
         this.rows = 0;
         this.stride = 0; 
         this.lastGrid = null;
+        this.lastAges = null;
         
         // Viewport State
         this.viewX = 0;
@@ -74,6 +85,7 @@ class UI {
         const { type, payload } = e.data;
         if (type === 'update') {
             this.lastGrid = payload.grid;
+            this.lastAges = payload.ages || null;
             this.isRunning = payload.running;
             updateStats(payload.generation, payload.pop);
             updateBtnState(this.isRunning);
@@ -135,7 +147,6 @@ class UI {
         }
 
         // Live Cells
-        this.ctx.fillStyle = CONF.liveColor;
         const sz = CONF.cellSize > 1 ? CONF.cellSize - 1 : 1;
 
         // The grid we receive IS the viewport. So we just draw it 1:1.
@@ -148,10 +159,19 @@ class UI {
 
             for (let bit = 0; bit < 32; bit++) {
                 if ((word >>> bit) & 1) {
-                    const x = (wordColStart + bit) * CONF.cellSize;
-                    const y = wordRow * CONF.cellSize;
+                    const cellX = wordColStart + bit;
+                    const cellY = wordRow;
+                    const x = cellX * CONF.cellSize;
+                    const y = cellY * CONF.cellSize;
                     
                     if (x < this.canvas.width && y < this.canvas.height) {
+                        // Determine color
+                        if (CONF.useAgeColor && this.lastAges) {
+                            const age = this.lastAges[cellY * this.cols + cellX] || 0;
+                            this.ctx.fillStyle = getAgeColor(age);
+                        } else {
+                            this.ctx.fillStyle = CONF.liveColor;
+                        }
                         this.ctx.fillRect(x, y, sz, sz);
                     }
                 }
@@ -190,6 +210,16 @@ const statDisplay = document.getElementById('stat-display');
 
 function updateStats(gen, pop) {
     statDisplay.innerText = `Gen: ${gen} | Pop: ${pop}`;
+}
+
+// Age color mapping
+function getAgeColor(age) {
+    if (age <= 0) return CONF.ageColors[0];
+    if (age <= 2) return CONF.ageColors[1];
+    if (age <= 5) return CONF.ageColors[2];
+    if (age <= 10) return CONF.ageColors[3];
+    if (age <= 20) return CONF.ageColors[4];
+    return CONF.ageColors[5];
 }
 
 function updateBtnState(running) {
@@ -290,6 +320,21 @@ document.getElementById('pattern-select').onchange = (e) => {
     document.querySelector('[data-mode="paste"]').click();
 };
 document.getElementById('btn-rotate').onclick = actions.rotate;
+
+// Color picker
+document.querySelectorAll('.color-swatch').forEach(swatch => {
+    swatch.onclick = () => {
+        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+        swatch.classList.add('active');
+        CONF.liveColor = swatch.dataset.color;
+    };
+});
+
+// Age color toggle
+document.getElementById('age-color-toggle').onchange = (e) => {
+    CONF.useAgeColor = e.target.checked;
+    ui.worker.postMessage({ type: 'setAgeTracking', payload: e.target.checked });
+};
 
 function rotateCurrentPattern() {
     const p = CURRENT_PATTERNS[ui.selectedPattern];

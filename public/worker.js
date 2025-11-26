@@ -27,6 +27,10 @@ let historyEnabled = false;
 let historyMaxSize = 20;
 let history = []; // Array of {chunks: Map, generation: number}
 
+// Age tracking (optional, for visualization)
+let ageTrackingEnabled = false;
+let cellAges = new Map(); // Key: "x,y", Value: age (generations alive)
+
 // Initialize
 self.onmessage = function(e) {
     const { type, payload } = e.data;
@@ -92,6 +96,17 @@ self.onmessage = function(e) {
             if (!historyEnabled) {
                 history = []; // Free memory
             }
+            break;
+
+        case 'setAgeTracking':
+            ageTrackingEnabled = payload;
+            if (!ageTrackingEnabled) {
+                cellAges.clear(); // Free memory
+            } else {
+                // Initialize ages for existing cells
+                initializeAges();
+            }
+            sendUpdate();
             break;
 
         case 'setCell':
@@ -566,9 +581,58 @@ function step() {
         }
     }
     
+    // Update ages if tracking enabled
+    if (ageTrackingEnabled) {
+        updateAges(nextChunks);
+    }
+    
     chunks = nextChunks;
     generation++;
     sendUpdate();
+}
+
+// Age tracking functions
+function initializeAges() {
+    cellAges.clear();
+    for (let [key, chunk] of chunks) {
+        const [cx, cy] = key.split(',').map(Number);
+        const x0 = cx * CHUNK_SIZE;
+        const y0 = cy * CHUNK_SIZE;
+        
+        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+            const word = chunk[ly];
+            if (word === 0) continue;
+            for (let lx = 0; lx < 32; lx++) {
+                if ((word >>> lx) & 1) {
+                    cellAges.set(`${x0 + lx},${y0 + ly}`, 1);
+                }
+            }
+        }
+    }
+}
+
+function updateAges(newChunks) {
+    const newAges = new Map();
+    
+    for (let [key, chunk] of newChunks) {
+        const [cx, cy] = key.split(',').map(Number);
+        const x0 = cx * CHUNK_SIZE;
+        const y0 = cy * CHUNK_SIZE;
+        
+        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+            const word = chunk[ly];
+            if (word === 0) continue;
+            for (let lx = 0; lx < 32; lx++) {
+                if ((word >>> lx) & 1) {
+                    const cellKey = `${x0 + lx},${y0 + ly}`;
+                    const oldAge = cellAges.get(cellKey) || 0;
+                    newAges.set(cellKey, oldAge + 1);
+                }
+            }
+        }
+    }
+    
+    cellAges = newAges;
 }
 
 function sendUpdate() {
@@ -665,16 +729,37 @@ function sendUpdate() {
         }
     }
 
-    self.postMessage({
-        type: 'update',
-        payload: {
-            grid: buffer,
-            generation: generation,
-            pop: totalPop,
-            running: running,
-            packed: true
+    // Build age buffer if age tracking enabled
+    let ageBuffer = null;
+    if (ageTrackingEnabled) {
+        ageBuffer = new Uint8Array(viewW * viewH);
+        for (let vy = 0; vy < viewH; vy++) {
+            for (let vx = 0; vx < viewW; vx++) {
+                const gx = viewX + vx;
+                const gy = viewY + vy;
+                const age = cellAges.get(`${gx},${gy}`) || 0;
+                // Clamp to 255
+                ageBuffer[vy * viewW + vx] = Math.min(age, 255);
+            }
         }
-    }, [buffer.buffer]);
+    }
+
+    const payload = {
+        grid: buffer,
+        generation: generation,
+        pop: totalPop,
+        running: running,
+        packed: true
+    };
+    
+    const transferables = [buffer.buffer];
+    
+    if (ageBuffer) {
+        payload.ages = ageBuffer;
+        transferables.push(ageBuffer.buffer);
+    }
+
+    self.postMessage({ type: 'update', payload }, transferables);
 }
 
 function loop() {
