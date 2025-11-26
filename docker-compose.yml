@@ -5,6 +5,5 @@ services:
     ports:
       - "8088:80"
     restart: unless-stopped
-    # Optimization: Mount volume for development so you can edit index.html live
-    volumes:
-      - ./public:/usr/share/nginx/html
+    # Development: use docker compose -f docker-compose.yml -f docker-compose.override.yml up
+    # Production: use docker compose up (no volume mount)

@@ -1,0 +1,7 @@
+# Development override - mount local files for live editing
+# Usage: docker compose up (auto-loads override in same directory)
+# Or explicitly: docker compose -f docker-compose.yml -f docker-compose.override.yml up
+services:
+  game-of-life:
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
