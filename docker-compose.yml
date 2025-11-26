@@ -5,5 +5,14 @@ services:
     ports:
       - "8088:80"
     restart: unless-stopped
-    # Development: use docker compose -f docker-compose.yml -f docker-compose.override.yml up
-    # Production: use docker compose up (no volume mount)
+# run behind a reverse proxy :
+#
+#     networks:
+#       proxy:
+#
+# networks:
+#   proxy:
+#     external: true
+
+# Development: use docker compose -f docker-compose.yml -f docker-compose.override.yml up
+# Production: use docker compose up (no volume mount)
