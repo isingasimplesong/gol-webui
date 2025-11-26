@@ -73,28 +73,6 @@
                 </div>
             </div>
 
-            <!-- Rules -->
-            <div class="group">
-                <div class="label">Automaton Rule</div>
-                <select id="rule-preset">
-                    <option value="B3/S23">Conway Life (B3/S23)</option>
-                    <option value="B36/S23">HighLife (B36/S23)</option>
-                    <option value="B2/S">Seeds (B2/S)</option>
-                    <option value="B3/S012345678">Life without Death</option>
-                    <option value="B3/S12345">Maze (B3/S12345)</option>
-                    <option value="B368/S245">Morley (B368/S245)</option>
-                    <option value="B1357/S1357">Replicator</option>
-                    <option value="B35678/S5678">Diamoeba</option>
-                    <option value="B4678/S35678">Anneal</option>
-                    <option value="B34/S34">34 Life</option>
-                    <option value="custom">Custom...</option>
-                </select>
-                <div class="row" id="custom-rule-row" style="display: none;">
-                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
-                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
-                </div>
-            </div>
-
             <!-- Zoom / Grid Size -->
             <div class="group">
                 <div class="label">Zoom Level</div>
@@ -174,6 +152,28 @@
                         <input type="checkbox" id="webgl-toggle">
                         <span style="font-size: 0.75rem;">WebGL renderer</span>
                     </label>
+                </div>
+            </div>
+
+            <!-- Rules -->
+            <div class="group">
+                <div class="label">Automaton Rule</div>
+                <select id="rule-preset">
+                    <option value="B3/S23">Conway Life (B3/S23)</option>
+                    <option value="B36/S23">HighLife (B36/S23)</option>
+                    <option value="B2/S">Seeds (B2/S)</option>
+                    <option value="B3/S012345678">Life without Death</option>
+                    <option value="B3/S12345">Maze (B3/S12345)</option>
+                    <option value="B368/S245">Morley (B368/S245)</option>
+                    <option value="B1357/S1357">Replicator</option>
+                    <option value="B35678/S5678">Diamoeba</option>
+                    <option value="B4678/S35678">Anneal</option>
+                    <option value="B34/S34">34 Life</option>
+                    <option value="custom">Custom...</option>
+                </select>
+                <div class="row" id="custom-rule-row" style="display: none;">
+                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
+                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
                 </div>
             </div>
         </div>
