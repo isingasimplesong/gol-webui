@@ -21,6 +21,155 @@ function hexToRGB(hex) {
     } : { r: 0, g: 0, b: 0 };
 }
 
+// WebGL Renderer (optional, for massive grids)
+class WebGLRenderer {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: false });
+        if (!this.gl) {
+            console.warn('WebGL not available, falling back to Canvas 2D');
+            this.available = false;
+            return;
+        }
+        this.available = true;
+        this.program = null;
+        this.positionBuffer = null;
+        this.init();
+    }
+    
+    init() {
+        const gl = this.gl;
+        
+        // Vertex shader: positions cells
+        const vsSource = `
+            attribute vec2 a_position;
+            uniform vec2 u_resolution;
+            uniform vec2 u_offset;
+            uniform float u_cellSize;
+            
+            void main() {
+                vec2 pos = (a_position * u_cellSize + u_offset) / u_resolution * 2.0 - 1.0;
+                pos.y = -pos.y; // Flip Y
+                gl_Position = vec4(pos, 0, 1);
+                gl_PointSize = u_cellSize;
+            }
+        `;
+        
+        // Fragment shader: colors cells
+        const fsSource = `
+            precision mediump float;
+            uniform vec3 u_color;
+            
+            void main() {
+                gl_FragColor = vec4(u_color, 1.0);
+            }
+        `;
+        
+        // Compile shaders
+        const vs = this.compileShader(gl.VERTEX_SHADER, vsSource);
+        const fs = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
+        
+        // Link program
+        this.program = gl.createProgram();
+        gl.attachShader(this.program, vs);
+        gl.attachShader(this.program, fs);
+        gl.linkProgram(this.program);
+        
+        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+            console.error('Shader program failed:', gl.getProgramInfoLog(this.program));
+            this.available = false;
+            return;
+        }
+        
+        // Get attribute/uniform locations
+        this.positionLoc = gl.getAttribLocation(this.program, 'a_position');
+        this.resolutionLoc = gl.getUniformLocation(this.program, 'u_resolution');
+        this.offsetLoc = gl.getUniformLocation(this.program, 'u_offset');
+        this.cellSizeLoc = gl.getUniformLocation(this.program, 'u_cellSize');
+        this.colorLoc = gl.getUniformLocation(this.program, 'u_color');
+        
+        // Create position buffer
+        this.positionBuffer = gl.createBuffer();
+    }
+    
+    compileShader(type, source) {
+        const gl = this.gl;
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+    
+    render(grid, stride, cols, rows, cellSize, liveColor) {
+        if (!this.available) return false;
+        
+        const gl = this.gl;
+        
+        // Resize canvas if needed
+        if (this.canvas.width !== this.canvas.clientWidth || this.canvas.height !== this.canvas.clientHeight) {
+            this.canvas.width = this.canvas.clientWidth;
+            this.canvas.height = this.canvas.clientHeight;
+            gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        }
+        
+        // Clear with dead color
+        const deadRGB = hexToRGB(CONF.deadColor);
+        gl.clearColor(deadRGB.r / 255, deadRGB.g / 255, deadRGB.b / 255, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        // Build position array from grid
+        const positions = [];
+        for (let i = 0; i < grid.length; i++) {
+            const word = grid[i];
+            if (word === 0) continue;
+            
+            const wordRow = Math.floor(i / stride);
+            const wordColStart = (i % stride) * 32;
+            
+            for (let bit = 0; bit < 32; bit++) {
+                if ((word >>> bit) & 1) {
+                    const cellX = wordColStart + bit;
+                    const cellY = wordRow;
+                    // Center of cell
+                    positions.push(cellX + 0.5, cellY + 0.5);
+                }
+            }
+        }
+        
+        if (positions.length === 0) return true;
+        
+        // Upload positions
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
+        
+        // Use program
+        gl.useProgram(this.program);
+        
+        // Set uniforms
+        gl.uniform2f(this.resolutionLoc, this.canvas.width, this.canvas.height);
+        gl.uniform2f(this.offsetLoc, 0, 0);
+        gl.uniform1f(this.cellSizeLoc, cellSize);
+        
+        const liveRGB = hexToRGB(liveColor);
+        gl.uniform3f(this.colorLoc, liveRGB.r / 255, liveRGB.g / 255, liveRGB.b / 255);
+        
+        // Enable position attribute
+        gl.enableVertexAttribArray(this.positionLoc);
+        gl.vertexAttribPointer(this.positionLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        // Draw points
+        gl.drawArrays(gl.POINTS, 0, positions.length / 2);
+        
+        return true;
+    }
+}
+
 // Age thresholds for color mapping
 const AGE_THRESHOLDS = {
     newborn: 0,
@@ -40,6 +189,7 @@ const CONF = {
     deadColor: '#2E3440',
     error: '#BF616A',
     useAgeColor: false,
+    useHeatmap: false,
     // Age gradient: young (bright) -> old (dim), indexed by AGE_THRESHOLDS
     ageColors: [
         '#ECEFF4', // 0: newborn (bright white)
@@ -51,7 +201,17 @@ const CONF = {
     ]
 };
 
-// Standard patterns
+// Heatmap color (intensity 0-255 -> color)
+function getHeatmapColor(intensity) {
+    if (intensity === 0) return null;
+    // Black -> Red -> Yellow -> White gradient
+    const r = Math.min(255, intensity * 4);
+    const g = Math.min(255, Math.max(0, (intensity - 64) * 2));
+    const b = Math.min(255, Math.max(0, (intensity - 192) * 4));
+    return `rgb(${r},${g},${b})`;
+}
+
+// Standard patterns (for paste mode)
 const BASE_PATTERNS = {
     glider: [[0,1],[1,2],[2,0],[2,1],[2,2]],
     lwss: [[0,1],[0,4],[1,0],[2,0],[3,0],[3,4],[4,0],[4,1],[4,2],[4,3]],
@@ -63,6 +223,64 @@ const BASE_PATTERNS = {
 
 let CURRENT_PATTERNS = JSON.parse(JSON.stringify(BASE_PATTERNS));
 
+// Pattern Library - RLE-encoded patterns from LifeWiki
+const PATTERN_LIBRARY = {
+    'Still Lifes': {
+        'Block': 'oo$oo!',
+        'Beehive': 'b2o$o2bo$b2o!',
+        'Loaf': 'b2o$o2bo$bobo$2bo!',
+        'Boat': '2o$obo$bo!',
+        'Tub': 'bo$obo$bo!',
+        'Ship': '2o$obo$b2o!',
+        'Pond': 'b2o$o2bo$o2bo$b2o!',
+        'Eater 1': '2o$obo$2bo$2b2o!',
+    },
+    'Oscillators': {
+        'Blinker': '3o!',
+        'Toad': 'b3o$3o!',
+        'Beacon': '2o$2o$2b2o$2b2o!',
+        'Pulsar': '2b3o3b3o2b2$o4bobo4bo$o4bobo4bo$o4bobo4bo$2b3o3b3o2b2$2b3o3b3o2b$o4bobo4bo$o4bobo4bo$o4bobo4bo2$2b3o3b3o!',
+        'Pentadecathlon': '2bo4bo2b$2ob4ob2o$2bo4bo!',
+        'Clock': '2bo$obo$bobo$bo!',
+        'Figure Eight': '3o3b$3o3b$3o3b$3b3o$3b3o$3b3o!',
+    },
+    'Spaceships': {
+        'Glider': 'bo$2bo$3o!',
+        'LWSS': 'bo2bo$o4b$o3bo$4o!',
+        'MWSS': '3bo$bo3bo$o$o4bo$5o!',
+        'HWSS': '3b2o$bo4bo$o$o5bo$6o!',
+    },
+    'Guns': {
+        'Gosper Gun': '24bo$22bobo$12b2o6b2o12b2o$11bo3bo4b2o12b2o$2o8bo5bo3b2o$2o8bo3bob2o4bobo$10bo5bo7bo$11bo3bo$12b2o!',
+        'Simkin Gun': '2o5b2o$2o5b2o2$4b2o$4b2o5$22b2ob2o$21bo5bo$21bo6bo2b2o$21b3o3bo3b2o$26bo4$20b2o$20bo$21b3o$23bo!',
+    },
+    'Methuselahs': {
+        'R-pentomino': 'b2o$2o$bo!',
+        'Diehard': '6bob$2o6b$bo3b3o!',
+        'Acorn': 'bo$3bo$2o2b3o!',
+        'B-heptomino': 'ob2o$3o$bo!',
+        'Pi-heptomino': 'b3o$3o$bo!',
+        'Thunderbird': 'b3o2$bobo$bobo$bobo!',
+    },
+    'Misc': {
+        'Puffer Train': '3bo$4bo$o3bo$b4o5$3bo$bobo$obo$bo$bo$2o5$3bo$4bo$o3bo$b4o!',
+        'Space Rake': '6bo$4bobo$3bo2bo$4b2o2$o$b3o4bo$4bo3bo$4bo2bo$5b2o!',
+    }
+};
+
+// Load pattern from library (places at 0,0 and centers view)
+function loadLibraryPattern(category, name) {
+    const rle = PATTERN_LIBRARY[category]?.[name];
+    if (!rle) {
+        toast('Pattern not found', true);
+        return;
+    }
+    loadFromRLE(`x = 0, y = 0\n${rle}`);
+    ui.viewX = -10;
+    ui.viewY = -10;
+    ui.worker.postMessage({ type: 'viewportMove', payload: { x: ui.viewX, y: ui.viewY } });
+}
+
 class UI {
     constructor(canvas) {
         this.canvas = canvas;
@@ -72,6 +290,7 @@ class UI {
         this.stride = 0; 
         this.lastGrid = null;
         this.lastAges = null;
+        this.lastHeatmap = null;
         
         // Viewport State
         this.viewX = 0;
@@ -87,6 +306,16 @@ class UI {
         this.mouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
         this.mode = 'draw';
         this.selectedPattern = 'glider';
+        
+        // Population history for graph
+        this.popHistory = [];
+        this.popHistoryMax = 100;
+        this.lastBbox = null;
+        this.currentRule = 'B3/S23';
+        
+        // WebGL renderer (optional)
+        this.webglRenderer = null;
+        this.useWebGL = false;
 
         // Init
         this.resize(true);
@@ -119,12 +348,38 @@ class UI {
         if (type === 'update') {
             this.lastGrid = payload.grid;
             this.lastAges = payload.ages || null;
+            this.lastHeatmap = payload.heatmap || null;
             this.isRunning = payload.running;
-            updateStats(payload.generation, payload.pop);
+            this.lastBbox = payload.bbox;
+            if (payload.rule) this.currentRule = payload.rule;
+            
+            // Track population history
+            this.popHistory.push(payload.pop);
+            if (this.popHistory.length > this.popHistoryMax) {
+                this.popHistory.shift();
+            }
+            
+            // Update FPS display
+            if (payload.fps) {
+                updateFpsDisplay(payload.fps.actual, payload.fps.target, payload.chunks, payload.historySize);
+            }
+            
+            updateStats(payload.generation, payload.pop, payload.bbox, this.currentRule);
             updateBtnState(this.isRunning);
             this.draw(); 
         } else if (type === 'exportData') {
              this.handleExport(payload);
+        } else if (type === 'ruleChanged') {
+            this.currentRule = payload;
+            toast(`Rule: ${payload}`);
+        } else if (type === 'ruleError') {
+            toast(payload, true);
+        } else if (type === 'jumpProgress') {
+            updateStats(payload.current, '...');
+        } else if (type === 'jumpComplete') {
+            toast(`Jumped to gen ${payload}`);
+        } else if (type === 'jumpError') {
+            toast(payload, true);
         }
     }
 
@@ -170,6 +425,20 @@ class UI {
         const canvasW = this.canvas.width;
         const canvasH = this.canvas.height;
         
+        // Try WebGL for small cells (very fast for many cells)
+        if (this.useWebGL && cellSize <= 3 && !CONF.useAgeColor && !CONF.useHeatmap) {
+            if (!this.webglRenderer) {
+                this.webglRenderer = new WebGLRenderer(this.canvas);
+            }
+            if (this.webglRenderer.available) {
+                if (this.webglRenderer.render(this.lastGrid, this.stride, this.cols, this.rows, cellSize, CONF.liveColor)) {
+                    // WebGL rendered, draw ghost pattern overlay using 2D context
+                    this.drawGhostPattern();
+                    return;
+                }
+            }
+        }
+        
         // Use ImageData for fast pixel rendering when cell size is small
         // For larger cells with grid lines, use fillRect approach
         if (cellSize <= 3) {
@@ -178,7 +447,12 @@ class UI {
             this.drawFillRect();
         }
 
-        // Ghost Pattern (always use fillRect for transparency)
+        this.drawGhostPattern();
+    }
+    
+    // Draw ghost pattern for paste mode
+    drawGhostPattern() {
+        const cellSize = CONF.cellSize;
         if (this.mode === 'paste' && !this.isRunning) {
             const sz = cellSize > 1 ? cellSize - 1 : 1;
             this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
@@ -270,6 +544,24 @@ class UI {
         // Clear
         this.ctx.fillStyle = CONF.deadColor;
         this.ctx.fillRect(0, 0, canvasW, canvasH);
+        
+        // Draw heatmap background if enabled
+        if (CONF.useHeatmap && this.lastHeatmap) {
+            for (let cellY = 0; cellY < this.rows; cellY++) {
+                for (let cellX = 0; cellX < this.cols; cellX++) {
+                    const heat = this.lastHeatmap[cellY * this.cols + cellX];
+                    if (heat > 0) {
+                        const color = getHeatmapColor(heat);
+                        if (color) {
+                            this.ctx.fillStyle = color;
+                            this.ctx.globalAlpha = 0.5;
+                            this.ctx.fillRect(cellX * cellSize, cellY * cellSize, cellSize, cellSize);
+                            this.ctx.globalAlpha = 1;
+                        }
+                    }
+                }
+            }
+        }
 
         // Grid Lines
         this.ctx.strokeStyle = '#353C4A';
@@ -331,8 +623,63 @@ const canvas = document.getElementById('grid');
 const ui = new UI(canvas);
 const statDisplay = document.getElementById('stat-display');
 
-function updateStats(gen, pop) {
-    statDisplay.innerText = `Gen: ${gen} | Pop: ${pop}`;
+function updateStats(gen, pop, bbox = null, rule = null) {
+    let text = `Gen: ${gen} | Pop: ${pop}`;
+    if (bbox) {
+        text += ` | ${bbox.w}x${bbox.h}`;
+    }
+    statDisplay.innerText = text;
+    
+    // Update population graph if visible
+    drawPopGraph();
+}
+
+// Population graph
+const popGraphCanvas = document.getElementById('pop-graph');
+const popGraphCtx = popGraphCanvas.getContext('2d');
+
+function drawPopGraph() {
+    const history = ui.popHistory;
+    if (history.length < 2) return;
+    
+    const w = popGraphCanvas.width;
+    const h = popGraphCanvas.height;
+    const max = Math.max(...history, 1);
+    
+    popGraphCtx.fillStyle = '#2E3440';
+    popGraphCtx.fillRect(0, 0, w, h);
+    
+    // Draw grid lines
+    popGraphCtx.strokeStyle = '#3B4252';
+    popGraphCtx.lineWidth = 1;
+    for (let y = 0; y < h; y += 10) {
+        popGraphCtx.beginPath();
+        popGraphCtx.moveTo(0, y);
+        popGraphCtx.lineTo(w, y);
+        popGraphCtx.stroke();
+    }
+    
+    // Draw population line
+    popGraphCtx.strokeStyle = '#A3BE8C';
+    popGraphCtx.lineWidth = 1.5;
+    popGraphCtx.beginPath();
+    
+    const step = w / (history.length - 1);
+    for (let i = 0; i < history.length; i++) {
+        const x = i * step;
+        const y = h - (history[i] / max) * (h - 4) - 2;
+        if (i === 0) {
+            popGraphCtx.moveTo(x, y);
+        } else {
+            popGraphCtx.lineTo(x, y);
+        }
+    }
+    popGraphCtx.stroke();
+    
+    // Draw current value
+    popGraphCtx.fillStyle = '#88C0D0';
+    popGraphCtx.font = '9px monospace';
+    popGraphCtx.fillText(`max: ${max}`, 4, 10);
 }
 
 // Age color mapping using AGE_THRESHOLDS
@@ -360,10 +707,23 @@ const actions = {
         const density = parseInt(document.getElementById('density-range').value) / 100;
         ui.worker.postMessage({ type: 'randomize', payload: density });
     },
-    setFps: (val) => {
-        document.getElementById('speed-range').value = val;
-        document.getElementById('speed-label').innerText = `${val} FPS`;
-        ui.worker.postMessage({ type: 'setFps', payload: val });
+    setFps: (sliderVal) => {
+        // Non-linear mapping: 0-6 = fractional (0.1, 0.2, 0.25, 0.33, 0.5, 0.75, 1)
+        // 7-66 = 1-60 FPS
+        const fractionalValues = [0.1, 0.2, 0.25, 0.33, 0.5, 0.75, 1];
+        let fps, label;
+        
+        if (sliderVal < fractionalValues.length) {
+            fps = fractionalValues[sliderVal];
+            label = fps < 1 ? `${fps} FPS (${Math.round(1/fps)}s/step)` : '1 FPS';
+        } else {
+            fps = sliderVal - fractionalValues.length + 1;
+            label = `${fps} FPS`;
+        }
+        
+        document.getElementById('speed-range').value = sliderVal;
+        document.getElementById('speed-label').innerText = label;
+        ui.worker.postMessage({ type: 'setFps', payload: fps });
     },
     setZoom: (val) => {
         document.getElementById('zoom-label').innerText = `${val}px`;
@@ -397,6 +757,12 @@ document.getElementById('btn-step').onclick = actions.step;
 document.getElementById('btn-rev-step').onclick = actions.reverse;
 document.getElementById('btn-clear').onclick = actions.clear;
 document.getElementById('btn-rand').onclick = actions.randomize;
+document.getElementById('btn-jump').onclick = () => {
+    const gen = parseInt(document.getElementById('jump-gen').value);
+    if (gen > 0) {
+        ui.worker.postMessage({ type: 'jumpToGen', payload: gen });
+    }
+};
 
 document.getElementById('speed-range').oninput = (e) => actions.setFps(parseInt(e.target.value));
 document.getElementById('zoom-range').oninput = (e) => actions.setZoom(parseInt(e.target.value));
@@ -465,6 +831,39 @@ document.querySelectorAll('.color-swatch').forEach(swatch => {
 document.getElementById('age-color-toggle').onchange = (e) => {
     CONF.useAgeColor = e.target.checked;
     ui.worker.postMessage({ type: 'setAgeTracking', payload: e.target.checked });
+    // Disable heatmap if age is enabled (mutually exclusive)
+    if (e.target.checked) {
+        document.getElementById('heatmap-toggle').checked = false;
+        CONF.useHeatmap = false;
+        ui.worker.postMessage({ type: 'setHeatmap', payload: false });
+    }
+};
+
+// Heatmap toggle
+document.getElementById('heatmap-toggle').onchange = (e) => {
+    CONF.useHeatmap = e.target.checked;
+    ui.worker.postMessage({ type: 'setHeatmap', payload: e.target.checked });
+    // Disable age color if heatmap is enabled (mutually exclusive)
+    if (e.target.checked) {
+        document.getElementById('age-color-toggle').checked = false;
+        CONF.useAgeColor = false;
+        ui.worker.postMessage({ type: 'setAgeTracking', payload: false });
+    }
+};
+
+// WebGL toggle
+document.getElementById('webgl-toggle').onchange = (e) => {
+    ui.useWebGL = e.target.checked;
+    if (e.target.checked && !ui.webglRenderer) {
+        ui.webglRenderer = new WebGLRenderer(ui.canvas);
+        if (!ui.webglRenderer.available) {
+            toast('WebGL not available', true);
+            e.target.checked = false;
+            ui.useWebGL = false;
+        } else {
+            toast('WebGL enabled');
+        }
+    }
 };
 
 function rotateCurrentPattern() {
@@ -604,11 +1003,11 @@ window.addEventListener('keydown', (e) => {
         case 'r': case 'R': actions.rotate(); break;
         case '[': {
             const current = parseInt(document.getElementById('speed-range').value);
-            actions.setFps(Math.max(1, current - 5));
+            actions.setFps(Math.max(0, current - 3));
         } break;
         case ']': {
             const current = parseInt(document.getElementById('speed-range').value);
-            actions.setFps(Math.min(60, current + 5));
+            actions.setFps(Math.min(66, current + 3));
         } break;
         case '/': if (e.ctrlKey) toggleHelp(); break;
         case 'Escape': document.getElementById('help-modal').classList.remove('show'); break;
@@ -620,6 +1019,18 @@ function toggleHelp() {
     document.getElementById('help-modal').classList.toggle('show');
 }
 
+// FPS display
+const fpsDisplay = document.getElementById('fps-display');
+function updateFpsDisplay(actual, target, chunks, historySize = 0) {
+    const color = actual >= target * 0.9 ? 'var(--success)' : 
+                  actual >= target * 0.5 ? 'var(--warning)' : 'var(--error)';
+    let text = `<span style="color:${color}">${actual}</span>/${target} FPS | ${chunks} chunks`;
+    if (historySize > 0) {
+        text += ` | ${historySize} hist`;
+    }
+    fpsDisplay.innerHTML = text;
+}
+
 const toast = (txt, isError = false) => {
     const el = document.getElementById('msg');
     el.innerText = txt;
@@ -627,6 +1038,73 @@ const toast = (txt, isError = false) => {
     el.style.opacity = 1;
     setTimeout(() => el.style.opacity = 0, 2000);
 };
+
+// Pattern Library
+function togglePatternLibrary() {
+    const lib = document.getElementById('pattern-library');
+    const icon = document.getElementById('library-toggle-icon');
+    if (lib.style.display === 'none') {
+        lib.style.display = 'block';
+        icon.textContent = '-';
+        populatePatternLibrary();
+    } else {
+        lib.style.display = 'none';
+        icon.textContent = '+';
+    }
+}
+
+function populatePatternLibrary() {
+    const container = document.getElementById('pattern-library');
+    if (container.children.length > 0) return; // Already populated
+    
+    for (const [category, patterns] of Object.entries(PATTERN_LIBRARY)) {
+        const catDiv = document.createElement('div');
+        catDiv.style.marginBottom = '8px';
+        
+        const catLabel = document.createElement('div');
+        catLabel.textContent = category;
+        catLabel.style.cssText = 'font-size: 0.7rem; color: var(--primary); margin-bottom: 4px; font-weight: bold;';
+        catDiv.appendChild(catLabel);
+        
+        const btnContainer = document.createElement('div');
+        btnContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
+        
+        for (const name of Object.keys(patterns)) {
+            const btn = document.createElement('button');
+            btn.textContent = name;
+            btn.style.cssText = 'font-size: 0.65rem; padding: 3px 6px; flex: 0 0 auto;';
+            btn.onclick = () => loadLibraryPattern(category, name);
+            btnContainer.appendChild(btn);
+        }
+        
+        catDiv.appendChild(btnContainer);
+        container.appendChild(catDiv);
+    }
+}
+
+// Rule Selection
+document.getElementById('rule-preset').onchange = (e) => {
+    const customRow = document.getElementById('custom-rule-row');
+    if (e.target.value === 'custom') {
+        customRow.style.display = 'flex';
+    } else {
+        customRow.style.display = 'none';
+        ui.worker.postMessage({ type: 'setRule', payload: e.target.value });
+    }
+};
+
+document.getElementById('btn-apply-rule').onclick = () => {
+    const rule = document.getElementById('custom-rule').value.trim();
+    if (rule) {
+        ui.worker.postMessage({ type: 'setRule', payload: rule });
+    }
+};
+
+document.getElementById('custom-rule').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        document.getElementById('btn-apply-rule').click();
+    }
+});
 
 // IO
 document.getElementById('btn-export').onclick = () => {

@@ -49,6 +49,61 @@ const CONFIG = {
     HISTORY_DEFAULT: 20,
 };
 
+// Cellular Automaton Rules (Life-like: B.../S...)
+// Default: Conway's Game of Life (B3/S23)
+let birthRule = [false, false, false, true, false, false, false, false, false]; // B3
+let survivalRule = [false, false, true, true, false, false, false, false, false]; // S23
+let currentRuleString = 'B3/S23';
+
+// Rule presets
+const RULE_PRESETS = {
+    'B3/S23': { name: 'Conway Life', birth: [3], survival: [2, 3] },
+    'B36/S23': { name: 'HighLife', birth: [3, 6], survival: [2, 3] },
+    'B2/S': { name: 'Seeds', birth: [2], survival: [] },
+    'B3/S012345678': { name: 'Life without Death', birth: [3], survival: [0,1,2,3,4,5,6,7,8] },
+    'B3/S12345': { name: 'Maze', birth: [3], survival: [1,2,3,4,5] },
+    'B368/S245': { name: 'Morley', birth: [3,6,8], survival: [2,4,5] },
+    'B1357/S1357': { name: 'Replicator', birth: [1,3,5,7], survival: [1,3,5,7] },
+    'B35678/S5678': { name: 'Diamoeba', birth: [3,5,6,7,8], survival: [5,6,7,8] },
+    'B4678/S35678': { name: 'Anneal', birth: [4,6,7,8], survival: [3,5,6,7,8] },
+    'B34/S34': { name: '34 Life', birth: [3,4], survival: [3,4] },
+};
+
+// Parse rule string (e.g., "B3/S23" or "B36/S23")
+function parseRule(ruleStr) {
+    const birth = [false, false, false, false, false, false, false, false, false];
+    const survival = [false, false, false, false, false, false, false, false, false];
+    
+    const match = ruleStr.toUpperCase().match(/B(\d*)\/?S(\d*)/);
+    if (!match) return null;
+    
+    const birthDigits = match[1] || '';
+    const survivalDigits = match[2] || '';
+    
+    for (const d of birthDigits) {
+        const n = parseInt(d);
+        if (n >= 0 && n <= 8) birth[n] = true;
+    }
+    for (const d of survivalDigits) {
+        const n = parseInt(d);
+        if (n >= 0 && n <= 8) survival[n] = true;
+    }
+    
+    return { birth, survival };
+}
+
+// Set rule from string
+function setRule(ruleStr) {
+    const parsed = parseRule(ruleStr);
+    if (parsed) {
+        birthRule = parsed.birth;
+        survivalRule = parsed.survival;
+        currentRuleString = ruleStr.toUpperCase();
+        return true;
+    }
+    return false;
+}
+
 // Aliases for frequently used values
 const CHUNK_SIZE = CONFIG.CHUNK_SIZE;
 const BITS = CONFIG.BITS_PER_WORD;
@@ -81,6 +136,12 @@ let history = []; // Array of {delta: Map<key, {old: Uint32Array|null, new: Uint
 // Uses parallel chunk structure: Map<"cx,cy", Uint8Array(1024)> where 1024 = 32x32 cells
 let ageTrackingEnabled = false;
 let ageChunks = new Map(); // Key: "cx,cy", Value: Uint8Array(1024) - ages capped at 255
+
+// Heatmap tracking (activity frequency)
+let heatmapEnabled = false;
+let heatmapChunks = new Map(); // Key: "cx,cy", Value: Uint8Array(1024) - activity count capped at 255
+let heatmapDecayCounter = 0;
+const HEATMAP_DECAY_INTERVAL = 10; // Decay every N steps
 
 // Initialize
 self.onmessage = function(e) {
@@ -160,6 +221,14 @@ self.onmessage = function(e) {
             }
             sendUpdate();
             break;
+            
+        case 'setHeatmap':
+            heatmapEnabled = payload;
+            if (!heatmapEnabled) {
+                heatmapChunks.clear();
+            }
+            sendUpdate();
+            break;
 
         case 'setCell':
             // Payload: global absolute idx? Or relative to view?
@@ -228,6 +297,49 @@ self.onmessage = function(e) {
             // Export only active chunks? Or viewport?
             // Let's export active bounding box.
             exportWorld();
+            break;
+            
+        case 'setRule':
+            if (setRule(payload)) {
+                // Optionally clear/reset on rule change
+                self.postMessage({ type: 'ruleChanged', payload: currentRuleString });
+            } else {
+                self.postMessage({ type: 'ruleError', payload: 'Invalid rule format' });
+            }
+            break;
+            
+        case 'getPresets':
+            self.postMessage({ type: 'presets', payload: RULE_PRESETS });
+            break;
+            
+        case 'jumpToGen':
+            {
+                const targetGen = payload;
+                if (targetGen <= generation) {
+                    self.postMessage({ type: 'jumpError', payload: 'Can only jump forward' });
+                    break;
+                }
+                const steps = targetGen - generation;
+                // Disable history during jump to save memory
+                const wasHistoryEnabled = historyEnabled;
+                historyEnabled = false;
+                
+                // Run steps without rendering
+                for (let i = 0; i < steps; i++) {
+                    stepSilent();
+                    // Report progress every 1000 steps
+                    if (i > 0 && i % 1000 === 0) {
+                        self.postMessage({ 
+                            type: 'jumpProgress', 
+                            payload: { current: generation, target: targetGen }
+                        });
+                    }
+                }
+                
+                historyEnabled = wasHistoryEnabled;
+                sendUpdate();
+                self.postMessage({ type: 'jumpComplete', payload: generation });
+            }
             break;
     }
 };
@@ -451,7 +563,7 @@ function exportWorld() {
     }
     
     // 3. Generate RLE
-    let rle = `#C Exported from Life Engine\nx = ${w}, y = ${h}, rule = B3/S23\n`;
+    let rle = `#C Exported from Life Engine\nx = ${w}, y = ${h}, rule = ${currentRuleString}\n`;
     let lineLen = 0;
     const MAX_LINE_LEN = 70;
     
@@ -726,7 +838,10 @@ function step() {
             const sw = shiftRight(s_row, s_w_word);
             const se = shiftLeft(s_row, s_e_word);
             
-            // SWAR Logic (Copy-pasted from previous efficient implementation)
+            // SWAR Logic: Count neighbors using parallel bit addition
+            // Result: total0 (bit 0), total1 (bit 1), total2 (bit 2), total3 (bit 3)
+            // These 4 bits encode neighbor count 0-8 for each cell position
+            
             const s0 = n ^ s; const c0 = n & s;
             const s1 = w ^ e; const c1 = w & e;
             const s2 = nw ^ sw; const c2 = nw & sw;
@@ -747,14 +862,53 @@ function step() {
             const sum_B = c01_x ^ c23_x;
             const carry_B = (c01_x & c23_x) | c01_a | c23_a;
 
-            // Final Sums
+            // Final Sums - 4-bit neighbor count per cell
             const total1 = sum_A ^ sum_B;
             const carry_AB = sum_A & sum_B;
             const total2 = carry_A ^ carry_B ^ carry_AB;
+            const total3 = (carry_A & carry_B) | (carry_A & carry_AB) | (carry_B & carry_AB);
             
-            const two_or_three = (~total2) & total1;
-
-            const nextState = two_or_three & (total0 | c_row);
+            // Apply rule using neighbor count bits
+            // For each neighbor count 0-8, check birth/survival rules
+            // count = total3*8 + total2*4 + total1*2 + total0
+            
+            // Build masks for each neighbor count
+            const n0 = ~total3 & ~total2 & ~total1 & ~total0; // count == 0
+            const n1 = ~total3 & ~total2 & ~total1 & total0;  // count == 1
+            const n2 = ~total3 & ~total2 & total1 & ~total0;  // count == 2
+            const n3 = ~total3 & ~total2 & total1 & total0;   // count == 3
+            const n4 = ~total3 & total2 & ~total1 & ~total0;  // count == 4
+            const n5 = ~total3 & total2 & ~total1 & total0;   // count == 5
+            const n6 = ~total3 & total2 & total1 & ~total0;   // count == 6
+            const n7 = ~total3 & total2 & total1 & total0;    // count == 7
+            const n8 = total3 & ~total2 & ~total1 & ~total0;  // count == 8
+            
+            // Birth mask: dead cells that become alive
+            let birthMask = 0;
+            if (birthRule[0]) birthMask |= n0;
+            if (birthRule[1]) birthMask |= n1;
+            if (birthRule[2]) birthMask |= n2;
+            if (birthRule[3]) birthMask |= n3;
+            if (birthRule[4]) birthMask |= n4;
+            if (birthRule[5]) birthMask |= n5;
+            if (birthRule[6]) birthMask |= n6;
+            if (birthRule[7]) birthMask |= n7;
+            if (birthRule[8]) birthMask |= n8;
+            
+            // Survival mask: live cells that stay alive
+            let survivalMask = 0;
+            if (survivalRule[0]) survivalMask |= n0;
+            if (survivalRule[1]) survivalMask |= n1;
+            if (survivalRule[2]) survivalMask |= n2;
+            if (survivalRule[3]) survivalMask |= n3;
+            if (survivalRule[4]) survivalMask |= n4;
+            if (survivalRule[5]) survivalMask |= n5;
+            if (survivalRule[6]) survivalMask |= n6;
+            if (survivalRule[7]) survivalMask |= n7;
+            if (survivalRule[8]) survivalMask |= n8;
+            
+            // Next state: birth (dead & birthMask) OR survival (alive & survivalMask)
+            const nextState = (~c_row & birthMask) | (c_row & survivalMask);
             
             if (nextState !== 0) active = true;
             nextChunk[y] = nextState;
@@ -768,6 +922,11 @@ function step() {
     // Update ages if tracking enabled
     if (ageTrackingEnabled) {
         updateAges(nextChunks);
+    }
+    
+    // Update heatmap if enabled
+    if (heatmapEnabled) {
+        updateHeatmap(chunks, nextChunks);
     }
     
     // Update population counter incrementally
@@ -853,6 +1012,60 @@ function getCellAge(x, y) {
     const ageChunk = ageChunks.get(getChunkKey(cx, cy));
     if (!ageChunk) return 0;
     return ageChunk[ly * CHUNK_SIZE + lx];
+}
+
+// Heatmap functions - track state changes (births + deaths)
+function updateHeatmap(oldChunks, newChunks) {
+    const allKeys = new Set([...oldChunks.keys(), ...newChunks.keys()]);
+    
+    for (const key of allKeys) {
+        const oldChunk = oldChunks.get(key);
+        const newChunk = newChunks.get(key);
+        
+        // Get or create heatmap chunk
+        let heatChunk = heatmapChunks.get(key);
+        if (!heatChunk) {
+            heatChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+            heatmapChunks.set(key, heatChunk);
+        }
+        
+        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+            const oldWord = oldChunk ? oldChunk[ly] : 0;
+            const newWord = newChunk ? newChunk[ly] : 0;
+            const changed = oldWord ^ newWord; // XOR = bits that changed
+            
+            if (changed === 0) continue;
+            
+            for (let lx = 0; lx < BITS; lx++) {
+                if ((changed >>> lx) & 1) {
+                    const idx = ly * CHUNK_SIZE + lx;
+                    // Increment activity count (cap at 255)
+                    if (heatChunk[idx] < 255) {
+                        heatChunk[idx] += 5; // Boost for visibility
+                        if (heatChunk[idx] > 255) heatChunk[idx] = 255;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Periodic decay
+    heatmapDecayCounter++;
+    if (heatmapDecayCounter >= HEATMAP_DECAY_INTERVAL) {
+        heatmapDecayCounter = 0;
+        for (const [key, heatChunk] of heatmapChunks) {
+            let hasValue = false;
+            for (let i = 0; i < heatChunk.length; i++) {
+                if (heatChunk[i] > 0) {
+                    heatChunk[i] = Math.max(0, heatChunk[i] - 1);
+                    if (heatChunk[i] > 0) hasValue = true;
+                }
+            }
+            if (!hasValue) {
+                heatmapChunks.delete(key);
+            }
+        }
+    }
 }
 
 function sendUpdate() {
@@ -973,12 +1186,47 @@ function sendUpdate() {
         }
     }
 
+    // Calculate bounding box
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let [key, chunk] of chunks) {
+        const [cx, cy] = key.split(',').map(Number);
+        const x0 = cx * CHUNK_SIZE;
+        const y0 = cy * CHUNK_SIZE;
+        
+        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+            const word = chunk[ly];
+            if (word === 0) continue;
+            
+            for (let lx = 0; lx < 32; lx++) {
+                if ((word >>> lx) & 1) {
+                    const gx = x0 + lx;
+                    const gy = y0 + ly;
+                    minX = Math.min(minX, gx);
+                    maxX = Math.max(maxX, gx);
+                    minY = Math.min(minY, gy);
+                    maxY = Math.max(maxY, gy);
+                }
+            }
+        }
+    }
+    
+    const boundingBox = totalPopulation > 0 ? {
+        x: minX, y: minY,
+        w: maxX - minX + 1,
+        h: maxY - minY + 1
+    } : null;
+
     const payload = {
         grid: buffer,
         generation: generation,
         pop: totalPopulation,
         running: running,
-        packed: true
+        packed: true,
+        bbox: boundingBox,
+        rule: currentRuleString,
+        fps: { actual: actualFps, target: fps },
+        chunks: chunks.size,
+        historySize: history.length,
     };
     
     const transferables = [buffer.buffer];
@@ -987,13 +1235,214 @@ function sendUpdate() {
         payload.ages = ageBuffer;
         transferables.push(ageBuffer.buffer);
     }
+    
+    // Build heatmap buffer if enabled
+    let heatmapBuffer = null;
+    if (heatmapEnabled) {
+        heatmapBuffer = new Uint8Array(viewW * viewH);
+        
+        for (let cy = startCy; cy <= endCy; cy++) {
+            for (let cx = startCx; cx <= endCx; cx++) {
+                const heatChunk = heatmapChunks.get(getChunkKey(cx, cy));
+                if (!heatChunk) continue;
+                
+                const chunkX = cx * CHUNK_SIZE;
+                const chunkY = cy * CHUNK_SIZE;
+                
+                const intersectX = Math.max(viewX, chunkX);
+                const intersectY = Math.max(viewY, chunkY);
+                const intersectW = Math.min(viewX + viewW, chunkX + CHUNK_SIZE) - intersectX;
+                const intersectH = Math.min(viewY + viewH, chunkY + CHUNK_SIZE) - intersectY;
+                
+                if (intersectW <= 0 || intersectH <= 0) continue;
+                
+                for (let y = 0; y < intersectH; y++) {
+                    const globalY = intersectY + y;
+                    const srcY = globalY - chunkY;
+                    const destY = globalY - viewY;
+                    
+                    for (let x = 0; x < intersectW; x++) {
+                        const globalX = intersectX + x;
+                        const srcX = globalX - chunkX;
+                        const destX = globalX - viewX;
+                        
+                        heatmapBuffer[destY * viewW + destX] = heatChunk[srcY * CHUNK_SIZE + srcX];
+                    }
+                }
+            }
+        }
+        
+        payload.heatmap = heatmapBuffer;
+        transferables.push(heatmapBuffer.buffer);
+    }
 
     self.postMessage({ type: 'update', payload }, transferables);
 }
 
+// Silent step for generation jumping (no sendUpdate, no history)
+function stepSilent() {
+    nextChunks = new Map();
+    
+    const toProcess = new Set();
+    for (let [key] of chunks) {
+        const [cx, cy] = key.split(',').map(Number);
+        for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                toProcess.add(getChunkKey(cx + dx, cy + dy));
+            }
+        }
+    }
+    
+    for (let key of toProcess) {
+        const [cx, cy] = key.split(',').map(Number);
+        
+        const C = chunks.get(getChunkKey(cx, cy)) || new Uint32Array(CHUNK_SIZE);
+        const N = chunks.get(getChunkKey(cx, cy - 1));
+        const S = chunks.get(getChunkKey(cx, cy + 1));
+        const W = chunks.get(getChunkKey(cx - 1, cy));
+        const E = chunks.get(getChunkKey(cx + 1, cy));
+        const NW = chunks.get(getChunkKey(cx - 1, cy - 1));
+        const NE = chunks.get(getChunkKey(cx + 1, cy - 1));
+        const SW = chunks.get(getChunkKey(cx - 1, cy + 1));
+        const SE = chunks.get(getChunkKey(cx + 1, cy + 1));
+        
+        const nextChunk = new Uint32Array(CHUNK_SIZE);
+        let active = false;
+        
+        for (let y = 0; y < CHUNK_SIZE; y++) {
+            const c_row = C[y];
+            let n_row = y > 0 ? C[y - 1] : (N ? N[CHUNK_SIZE - 1] : 0);
+            let s_row = y < CHUNK_SIZE - 1 ? C[y + 1] : (S ? S[0] : 0);
+            
+            const w_chunk_row = W ? W[y] : 0;
+            const e_chunk_row = E ? E[y] : 0;
+            
+            const shiftRight = (curr, left) => (curr << 1) | (left >>> 31);
+            const shiftLeft  = (curr, right) => (curr >>> 1) | (right << 31);
+            
+            const w = shiftRight(c_row, w_chunk_row);
+            const e = shiftLeft(c_row, e_chunk_row);
+            
+            let n_w_word, n_e_word;
+            if (y > 0) {
+                n_w_word = W ? W[y - 1] : 0;
+                n_e_word = E ? E[y - 1] : 0;
+            } else {
+                n_w_word = NW ? NW[CHUNK_SIZE - 1] : 0;
+                n_e_word = NE ? NE[CHUNK_SIZE - 1] : 0;
+            }
+            const n = n_row;
+            const nw = shiftRight(n_row, n_w_word);
+            const ne = shiftLeft(n_row, n_e_word);
+            
+            let s_w_word, s_e_word;
+            if (y < CHUNK_SIZE - 1) {
+                s_w_word = W ? W[y + 1] : 0;
+                s_e_word = E ? E[y + 1] : 0;
+            } else {
+                s_w_word = SW ? SW[0] : 0;
+                s_e_word = SE ? SE[0] : 0;
+            }
+            const s = s_row;
+            const sw = shiftRight(s_row, s_w_word);
+            const se = shiftLeft(s_row, s_e_word);
+            
+            // SWAR neighbor count
+            const s0 = n ^ s; const c0 = n & s;
+            const s1 = w ^ e; const c1 = w & e;
+            const s2 = nw ^ sw; const c2 = nw & sw;
+            const s3 = ne ^ se; const c3 = ne & se;
+            
+            const s01 = s0 ^ s1; const c01 = s0 & s1;
+            const s23 = s2 ^ s3; const c23 = s2 & s3;
+            const total0 = s01 ^ s23;
+            const carry_s_raw = s01 & s23;
+            
+            const sum_A = c01 ^ c23 ^ carry_s_raw;
+            const carry_A = (c01 & c23) | (c01 & carry_s_raw) | (c23 & carry_s_raw);
+            
+            const c01_x = c0 ^ c1; const c01_a = c0 & c1;
+            const c23_x = c2 ^ c3; const c23_a = c2 & c3;
+            const sum_B = c01_x ^ c23_x;
+            const carry_B = (c01_x & c23_x) | c01_a | c23_a;
+            
+            const total1 = sum_A ^ sum_B;
+            const carry_AB = sum_A & sum_B;
+            const total2 = carry_A ^ carry_B ^ carry_AB;
+            const total3 = (carry_A & carry_B) | (carry_A & carry_AB) | (carry_B & carry_AB);
+            
+            // Neighbor count masks
+            const n0 = ~total3 & ~total2 & ~total1 & ~total0;
+            const n1 = ~total3 & ~total2 & ~total1 & total0;
+            const n2 = ~total3 & ~total2 & total1 & ~total0;
+            const n3 = ~total3 & ~total2 & total1 & total0;
+            const n4 = ~total3 & total2 & ~total1 & ~total0;
+            const n5 = ~total3 & total2 & ~total1 & total0;
+            const n6 = ~total3 & total2 & total1 & ~total0;
+            const n7 = ~total3 & total2 & total1 & total0;
+            const n8 = total3 & ~total2 & ~total1 & ~total0;
+            
+            let birthMask = 0, survivalMask = 0;
+            if (birthRule[0]) birthMask |= n0;
+            if (birthRule[1]) birthMask |= n1;
+            if (birthRule[2]) birthMask |= n2;
+            if (birthRule[3]) birthMask |= n3;
+            if (birthRule[4]) birthMask |= n4;
+            if (birthRule[5]) birthMask |= n5;
+            if (birthRule[6]) birthMask |= n6;
+            if (birthRule[7]) birthMask |= n7;
+            if (birthRule[8]) birthMask |= n8;
+            
+            if (survivalRule[0]) survivalMask |= n0;
+            if (survivalRule[1]) survivalMask |= n1;
+            if (survivalRule[2]) survivalMask |= n2;
+            if (survivalRule[3]) survivalMask |= n3;
+            if (survivalRule[4]) survivalMask |= n4;
+            if (survivalRule[5]) survivalMask |= n5;
+            if (survivalRule[6]) survivalMask |= n6;
+            if (survivalRule[7]) survivalMask |= n7;
+            if (survivalRule[8]) survivalMask |= n8;
+            
+            const nextState = (~c_row & birthMask) | (c_row & survivalMask);
+            
+            if (nextState !== 0) active = true;
+            nextChunk[y] = nextState;
+        }
+        
+        if (active) {
+            nextChunks.set(key, nextChunk);
+        }
+    }
+    
+    // Update population counter
+    let newPop = 0;
+    for (const chunk of nextChunks.values()) {
+        newPop += countChunkPopulation(chunk);
+    }
+    totalPopulation = newPop;
+    
+    chunks = nextChunks;
+    generation++;
+}
+
+// FPS tracking
+let lastFrameTime = 0;
+let frameCount = 0;
+let actualFps = 0;
+let fpsUpdateTime = 0;
+
 function loop() {
     if (!running) return;
     const start = performance.now();
+    
+    // Calculate actual FPS
+    frameCount++;
+    if (start - fpsUpdateTime >= 1000) {
+        actualFps = frameCount;
+        frameCount = 0;
+        fpsUpdateTime = start;
+    }
+    
     step();
     const end = performance.now();
     const elapsed = end - start;

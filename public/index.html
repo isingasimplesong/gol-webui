@@ -11,6 +11,7 @@
 <main id="canvas-container">
     <canvas id="grid"></canvas>
     <div id="msg" class="overlay-msg">Saved</div>
+    <div id="fps-display" class="fps-overlay">-- FPS</div>
 
     <!-- Help Modal -->
     <div id="help-modal" class="modal-overlay">
@@ -38,10 +39,33 @@
         <div class="header">
             <h1>> LIFE_ENGINE</h1>
             <div class="stats" id="stat-display">Gen: 0 | Pop: 0</div>
+            <canvas id="pop-graph" width="280" height="40" style="margin-top: 8px; border-radius: 4px; background: var(--bg);"></canvas>
             <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 3px;">Press <span style="color: var(--primary); font-weight: bold;">Ctrl+/</span> for help</div>
         </div>
 
         <div class="controls">
+            <!-- Rules -->
+            <div class="group">
+                <div class="label">Automaton Rule</div>
+                <select id="rule-preset">
+                    <option value="B3/S23">Conway Life (B3/S23)</option>
+                    <option value="B36/S23">HighLife (B36/S23)</option>
+                    <option value="B2/S">Seeds (B2/S)</option>
+                    <option value="B3/S012345678">Life without Death</option>
+                    <option value="B3/S12345">Maze (B3/S12345)</option>
+                    <option value="B368/S245">Morley (B368/S245)</option>
+                    <option value="B1357/S1357">Replicator</option>
+                    <option value="B35678/S5678">Diamoeba</option>
+                    <option value="B4678/S35678">Anneal</option>
+                    <option value="B34/S34">34 Life</option>
+                    <option value="custom">Custom...</option>
+                </select>
+                <div class="row" id="custom-rule-row" style="display: none;">
+                    <input type="text" id="custom-rule" placeholder="B3/S23" style="flex: 2;">
+                    <button id="btn-apply-rule" style="flex: 1;">Apply</button>
+                </div>
+            </div>
+
             <!-- Playback -->
             <div class="group">
                 <div class="label">Time Control</div>
@@ -54,6 +78,11 @@
                     <button id="btn-clear" style="color: var(--error)">Kill All</button>
                 </div>
                 <div class="row" style="align-items: center;">
+                    <span style="font-size: 0.75rem; white-space: nowrap;">Jump to:</span>
+                    <input type="number" id="jump-gen" min="1" value="1000" style="width: 70px; text-align: center;">
+                    <button id="btn-jump" style="flex: 0;">Go</button>
+                </div>
+                <div class="row" style="align-items: center;">
                     <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
                         <input type="checkbox" id="history-toggle">
                         <span style="font-size: 0.75rem;">History</span>
@@ -61,7 +90,7 @@
                     <input type="number" id="history-size" min="5" max="100" value="20" style="width: 50px; text-align: center;" disabled>
                     <span style="font-size: 0.7rem; color: var(--text-dim);">steps</span>
                 </div>
-                <input type="range" id="speed-range" min="1" max="60" value="30">
+                <input type="range" id="speed-range" min="0" max="66" value="36" step="1">
                 <div class="label" style="text-align:right" id="speed-label">30 FPS</div>
             </div>
 
@@ -94,6 +123,17 @@
                     <option value="block">Block</option>
                     <option value="beehive">Beehive</option>
                 </select>
+            </div>
+
+            <!-- Pattern Library -->
+            <div class="group">
+                <div class="label" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="togglePatternLibrary()">
+                    <span>Pattern Library</span>
+                    <span id="library-toggle-icon">+</span>
+                </div>
+                <div id="pattern-library" style="display: none; max-height: 200px; overflow-y: auto;">
+                    <!-- Dynamically populated -->
+                </div>
             </div>
 
             <!-- Import/Export -->
@@ -133,6 +173,18 @@
                     <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
                         <input type="checkbox" id="age-color-toggle">
                         <span style="font-size: 0.75rem;">Age gradient</span>
+                    </label>
+                </div>
+                <div class="row" style="align-items: center; margin-top: 5px;">
+                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                        <input type="checkbox" id="heatmap-toggle">
+                        <span style="font-size: 0.75rem;">Activity heatmap</span>
+                    </label>
+                </div>
+                <div class="row" style="align-items: center; margin-top: 5px;">
+                    <label style="display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer;">
+                        <input type="checkbox" id="webgl-toggle">
+                        <span style="font-size: 0.75rem;">WebGL renderer</span>
                     </label>
                 </div>
             </div>
