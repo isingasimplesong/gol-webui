@@ -761,10 +761,10 @@ function drawPopGraph() {
     }
     popGraphCtx.stroke();
     
-    // Draw current value
+    // Draw legend at bottom
     popGraphCtx.fillStyle = '#88C0D0';
     popGraphCtx.font = '9px monospace';
-    popGraphCtx.fillText(`max: ${max}`, 4, 10);
+    popGraphCtx.fillText(`max: ${max}`, 4, h - 4);
 }
 
 // Age color mapping using AGE_THRESHOLDS
