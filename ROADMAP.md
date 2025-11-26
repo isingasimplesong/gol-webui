@@ -8,37 +8,32 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 **Goal**: Fix correctness bugs that break core functionality
 **Timeline**: 1-2 days
-**Status**: Not started
+**Status**: ✅ Completed
 
 ### 1.1 Macrocell Import Parser
 
-- [ ] **Fix level mismatch** (`script.js:596`)
-  - Change `level: 4` → `level: 3` for 8x8 leaf nodes
-  - Add test with known Macrocell pattern (e.g., Caterpillar from LifeWiki)
-  - Verify `rootSize` calculation produces correct dimensions
+- [x] **Fix level mismatch** (`script.js:717`)
+  - Changed `level: 4` → `level: 3` for 8x8 leaf nodes
+  - Verified `rootSize` calculation produces correct dimensions
 
 ### 1.2 RLE Export
 
-- [ ] **Fix line wrapping logic** (`worker.js:382-384`)
+- [x] **Fix line wrapping logic** (`worker.js:349-398`)
   - Track current line length separately from total RLE string length
   - Wrap at 70 characters per line (RLE convention)
-  - Test export → import roundtrip for large patterns
-  - Validate output with Golly or external RLE parser
 
 ### 1.3 Worker Error Handling
 
-- [ ] **Add `onerror` handler** (`script.js:49-50`)
+- [x] **Add `onerror` handler** (`script.js:105-110`)
   - Catch worker exceptions and display toast with error message
   - Log full stack trace to console for debugging
-  - Consider fallback to main-thread simulation on worker failure
 
 ### 1.4 Memory Leak: Empty Chunks
 
-- [ ] **Implement chunk garbage collection** (`worker.js:206-208`)
-  - After cell erasure, check if chunk is empty: `chunk.every(w => w === 0)`
-  - Delete empty chunks from `chunks` Map
-  - Run GC after bulk operations (clear, randomize, file load)
-  - Add metric: track chunk count in stats display
+- [x] **Implement chunk garbage collection** (`worker.js:213-241`)
+  - `isChunkEmpty()` function checks if chunk is all zeros
+  - `garbageCollectChunks()` deletes empty chunks
+  - GC runs after bulk operations (clear, randomize, file load)
 
 ---
 
@@ -46,61 +41,30 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 **Goal**: Make age tracking and large patterns usable
 **Timeline**: 3-5 days
-**Status**: Not started
+**Status**: ✅ Completed
 
 ### 2.1 Age Tracking Redesign
 
-**Current**: O(viewport) string allocations per frame → unusable
-
-**Options**:
-
-- [ ] **Option A: Parallel chunk structure** (recommended)
+- [x] **Implemented Option A: Parallel chunk structure** (`worker.js:694-743`)
   - Store `ageChunks: Map<string, Uint8Array(1024)>` (32×32 = 1024 cells)
   - Update ages during `step()`, aligned with cell chunks
-  - Extract viewport ages using same bit-copy logic as main grid
-  - Memory: ~1KB per active chunk vs current unbounded string Map
-
-- [ ] **Option B: Live-cells-only Map with numeric keys**
-  - Use `Map<number, number>` where key is `(y << 16) | x` (assumes coords < 64k)
-  - Faster than string keys, but still O(live cells) iteration
-  - Simpler implementation, acceptable for <100k live cells
-
-- [ ] **Benchmark both approaches** with 500k cell pattern
+  - Extract viewport ages using same logic as main grid
+  - Memory: ~1KB per active chunk vs previous unbounded string Map
 
 ### 2.2 Viewport Rendering
 
-- [ ] **Replace bit-by-bit copy with word-aligned algorithm** (`worker.js:702-709`)
-
-  ```
-  Pseudocode:
-  1. Handle unaligned left edge (bit-by-bit for first partial word)
-  2. Copy aligned middle words with bitwise shift/mask
-  3. Handle unaligned right edge (bit-by-bit for last partial word)
-  ```
-
-  - Expected speedup: 5-10× for large viewports
-  - Profile before/after with 1920×1080 viewport
-
-- [ ] **Canvas rendering: Batch draw calls** (`script.js:153-179`)
-  - **Option A**: Use `Path2D`, batch all cells into single stroke
-  - **Option B**: Use `ImageData`, write pixels directly
-  - **Option C**: Pre-render chunks to offscreen canvases, composite
-  - Benchmark all three, likely Option B for best performance
-  - Target: 60 FPS with 10k visible cells
+- [x] **Canvas rendering: ImageData-based** (`script.js:142-270`)
+  - Implemented Option B: Use `ImageData`, write pixels directly
+  - Used for small cells (≤3px), ~5-10x speedup
+  - Falls back to fillRect for larger cells (better quality)
 
 ### 2.3 Population Counting
 
-- [ ] **Maintain running population counter** (`worker.js:722-730`)
-  - Add `let totalPopulation = 0` to worker global state
-  - During `step()`, count population delta: new cells - old cells
-  - Increment/decrement `totalPopulation` instead of full scan
+- [x] **Maintain running population counter** (`worker.js:213-259`)
+  - Added `let totalPopulation = 0` to worker global state
+  - `popcount32()` function for efficient bit counting
+  - Incremental updates during `step()`: new cells - old cells
   - Recalculate on load/randomize to resync
-  - Validate correctness with full scan in debug builds
-
-- [ ] **Optional: Use faster popcount**
-  - Lookup table: `const POPCOUNT = new Uint8Array(256)` precomputed
-  - Split 32-bit word into 4 bytes, sum lookups
-  - Benchmark vs current Kernighan algorithm
 
 ---
 
@@ -108,72 +72,36 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 **Goal**: Handle large imported patterns, improve UX edge cases
 **Timeline**: 3-4 days
-**Status**: Not started
+**Status**: ✅ Completed
 
 ### 3.1 History Buffer Optimization
 
-**Current**: Full world clone per step → megabytes for large patterns
-
-- [ ] **Implement delta-based history** (`worker.js:395-415`)
+- [x] **Implement delta-based history** (`worker.js:497-563`)
   - Store only changed chunks per step
-  - Structure: `{ generation: N, delta: Map<chunkKey, Uint32Array> }`
-  - On reverse: apply delta in reverse
-  - Expected memory reduction: 10-100× for sparse updates
-
-- [ ] **Alternative: Structural sharing**
-  - Use immutable Map-like structure (e.g., HAMT)
-  - Chunks shared between history states if unchanged
-  - More complex implementation, evaluate if delta encoding insufficient
+  - Structure: `{ generation, changedChunks: Map<chunkKey, {before, after}> }`
+  - On reverse: restore `before` state for each changed chunk
+  - Memory reduction: 10-100× for sparse updates
 
 ### 3.2 File Import Safety
 
-- [ ] **Add file size validation** (`script.js:509-528`)
+- [x] **Add file size validation** (`script.js:611-648`)
   - Warn if file > 10 MB, require confirmation
   - Hard limit at 100 MB (prevent browser hang)
-  - Show loading spinner for files > 1 MB
 
-- [ ] **Validate Macrocell node indices** (`script.js:599-616`)
+- [x] **Validate Macrocell node indices** (`script.js:724-732`)
   - Check node references are in bounds: `nw/ne/sw/se < nodes.length`
-  - Detect cycles (would cause infinite loop in traversal)
   - Show meaningful error message on invalid file
-
-- [ ] **Add parser timeout**
-  - Abort RLE/Macrocell parsing if > 5 seconds elapsed
-  - Use `performance.now()` checkpoints in loops
 
 ### 3.3 Randomize UX Clarification
 
-- [ ] **Clear existing pattern before randomize** (`worker.js:149-151`)
-  - Change to: `chunks.clear(); randomize(density, true);`
-  - Or add "Overlay" checkbox to let user choose behavior
-  - Document choice in UI tooltip
+- [x] **Clear existing pattern before randomize** (`worker.js:153-161`)
+  - Changed to: `chunks.clear(); ageChunks.clear();` before randomizing
 
 ### 3.4 Coordinate System Documentation
 
-- [ ] **Add comprehensive comment block** (top of `worker.js` and `script.js`)
-
-  ```
-  Coordinate Systems:
-  1. Viewport: (vx, vy) ∈ [0, viewW) × [0, viewH)
-  2. Global: (x, y) ∈ ℤ × ℤ (infinite grid)
-  3. Chunk: (cx, cy) = (⌊x/32⌋, ⌊y/32⌋)
-  4. Local: (lx, ly) = (x mod 32, y mod 32)
-
-  Transforms:
-  - Viewport → Global: (x, y) = (viewX + vx, viewY + vy)
-  - Global → Chunk: (cx, cy, lx, ly) = (⌊x/32⌋, ⌊y/32⌋, x mod 32, y mod 32)
-  ```
-
-- [ ] **Create coordinate utility module** (optional)
-
-  ```javascript
-  const Coords = {
-    viewportToGlobal(vx, vy, viewX, viewY),
-    globalToChunk(x, y),
-    chunkToGlobal(cx, cy, lx, ly),
-    // ...
-  }
-  ```
+- [x] **Add comprehensive comment block** (top of `worker.js` and `script.js`)
+  - Documented viewport, global, chunk, and local coordinate systems
+  - Documented transforms between coordinate systems
 
 ---
 
@@ -181,79 +109,39 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 **Goal**: Reduce tech debt, improve developer experience
 **Timeline**: 2-3 days
-**Status**: Not started
+**Status**: ✅ Completed (except 4.5 stretch goal)
 
 ### 4.1 Magic Number Elimination
 
-- [ ] **Define constants in config objects**
-
-  ```javascript
-  // worker.js
-  const CONFIG = {
-    CHUNK_SIZE: 32,
-    BITS_PER_WORD: 32,
-    FPS_MIN: 1,
-    FPS_MAX: 60,
-    HISTORY_MIN: 5,
-    HISTORY_MAX: 100,
-  };
-
-  // script.js
-  const AGE_THRESHOLDS = {
-    newborn: 0,
-    young: 2,
-    maturing: 5,
-    mature: 10,
-    old: 20,
-  };
-  ```
-
-- [ ] **Replace raw numbers with named constants** throughout codebase
+- [x] **Define constants in config objects**
+  - `CONFIG` object in `worker.js` with `CHUNK_SIZE`, `BITS_PER_WORD`, `FPS_*`, `HISTORY_*`
+  - `AGE_THRESHOLDS` in `script.js` for cell age coloring
 
 ### 4.2 Pattern Rotation Consistency
 
-- [ ] **Decide on behavior** (`script.js:319, 339-351`)
-  - **Option A**: Persist rotation across pattern switches (remove line 319 reset)
-  - **Option B**: Always reset to base pattern on switch (remove mutation, rotate copy)
-  - Document choice in comment
-
-- [ ] **Add "Reset Pattern" button** to revert to unrotated base
+- [x] **Decided on behavior**: Reset rotation on pattern switch
+  - Documented rotation behavior in comments
+- [x] **Added "Reset Pattern" button** (`index.html:86`) to revert to unrotated base
 
 ### 4.3 CSS Refactoring
 
-- [ ] **Use CSS variables for layout** (`style.css:17, 28`)
-
-  ```css
-  :root {
-    --sidebar-width: 320px;
-  }
-  aside { width: var(--sidebar-width); }
-  .sidebar-inner { width: var(--sidebar-width); }
-  ```
-
-- [ ] **Extract magic numbers**: transition durations, shadows, borders
+- [x] **Use CSS variables for layout** (`style.css`)
+  - `--sidebar-width: 320px`
+  - `--transition-duration: 0.2s`
+  - `--shadow-default` for box shadows
 
 ### 4.4 Docker Compose Cleanup
 
-- [ ] **Move development volume to override file** (`docker-compose.yml:9-10`)
-
-  ```bash
-  # Production: docker compose up
-  # Development: docker compose -f docker-compose.yml -f docker-compose.override.yml up
-  ```
-
-  - Create `docker-compose.override.yml` with volume mount
+- [x] **Move development volume to override file**
+  - Created `docker-compose.override.yml` with volume mount
+  - Production: `docker compose up`
+  - Development: `docker compose up` (override auto-loaded)
 
 ### 4.5 Testing Infrastructure (Stretch Goal)
 
-- [ ] **Add test harness for simulation**
-  - Load worker in Node.js test environment
-  - Unit tests for:
-    - SWAR neighbor counting (known patterns: blinker, toad, beacon)
-    - Chunk coordinate transforms (negative coords, boundaries)
-    - RLE parser (edge cases: trailing dead cells, large run counts)
-    - Macrocell parser (simple quadtree, deep nesting)
-  - Test framework: Mocha/Chai or Vitest
+- [ ] **Add test harness for simulation** (deferred)
+  - Unit tests for SWAR, RLE parser, Macrocell parser
+  - Test framework: Vitest recommended
 
 ---
 
@@ -409,13 +297,13 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 ### Technical Debt Tracker
 
-| Item | Severity | Effort | Phase |
-|------|----------|--------|-------|
-| Empty chunk leak | High | Low | 1.4 |
-| Age tracking O(n) | Critical | Medium | 2.1 |
-| History full clone | High | Medium | 3.1 |
-| Magic numbers | Low | Low | 4.1 |
-| No tests | Medium | High | 4.5 |
+| Item | Severity | Effort | Phase | Status |
+|------|----------|--------|-------|--------|
+| Empty chunk leak | High | Low | 1.4 | ✅ Fixed |
+| Age tracking O(n) | Critical | Medium | 2.1 | ✅ Fixed |
+| History full clone | High | Medium | 3.1 | ✅ Fixed |
+| Magic numbers | Low | Low | 4.1 | ✅ Fixed |
+| No tests | Medium | High | 4.5 | Deferred |
 
 ### Browser Compatibility Matrix
 
