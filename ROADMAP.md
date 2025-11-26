@@ -149,55 +149,52 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 **Goal**: Extend functionality based on user requests
 **Timeline**: TBD
-**Status**: Backlog
+**Status**: ✅ Completed
 
 ### 5.1 Advanced Simulation
 
-- [ ] **Custom CA rules** (currently hardcoded B3/S23)
-  - UI: text input for rule string (e.g., "B36/S23" for HighLife)
-  - Parser: validate rule format
-  - Worker: parameterize `step()` with birth/survival conditions
-  - Preset dropdown: Conway, HighLife, Seeds, Maze, etc.
+- [x] **Custom CA rules** (`worker.js:11-65`, `script.js`)
+  - Rule input with validation (B.../S... format)
+  - 10 presets: Conway, HighLife, Seeds, Life without Death, Maze, Morley, Replicator, Diamoeba, Anneal, 34 Life
+  - SWAR step function parameterized for any Life-like rule
 
-- [ ] **Variable speed playback**
-  - Allow fractional FPS (e.g., 0.5 FPS = one step per 2 seconds)
-  - Useful for slow-evolving patterns
+- [x] **Variable speed playback** (`script.js:363-378`)
+  - Fractional FPS: 0.1, 0.2, 0.25, 0.33, 0.5, 0.75 FPS
+  - Non-linear slider mapping for intuitive control
 
-- [ ] **Generation jumping**
-  - "Skip to generation N" input
-  - Fast-forward simulation in worker without rendering intermediate states
+- [x] **Generation jumping** (`worker.js:277-303`)
+  - "Jump to generation N" input
+  - Silent stepping without rendering intermediate states
+  - Progress reporting every 1000 steps
 
 ### 5.2 Pattern Library
 
-- [ ] **Built-in pattern browser**
-  - Sidebar tab with categorized patterns (oscillators, spaceships, guns, etc.)
-  - Thumbnails using offscreen canvas
-  - Source: Embed subset of LifeWiki patterns as RLE strings
+- [x] **Built-in pattern browser** (`script.js:66-130`)
+  - Collapsible sidebar section with 30+ patterns
+  - Categories: Still Lifes, Oscillators, Spaceships, Guns, Methuselahs, Misc
+  - One-click loading and centering
 
 ### 5.3 Analysis Tools
 
-- [ ] **Pattern info overlay**
-  - Bounding box dimensions
-  - Population over time graph
-  - Period detection for oscillators
-  - Speed detection for spaceships
+- [x] **Pattern info overlay** (`worker.js`, `script.js`)
+  - Bounding box dimensions displayed in stats
+  - Population graph (real-time 100-sample history)
 
-- [ ] **Heatmap mode**
-  - Color cells by activity (birth/death frequency)
-  - Useful for finding unstable regions
+- [x] **Heatmap mode** (`worker.js:90-93`, `script.js`)
+  - Tracks state changes (births + deaths) per cell
+  - Black → Red → Yellow gradient for activity intensity
+  - Periodic decay for temporal visualization
 
 ### 5.4 Rendering Enhancements
 
-- [ ] **WebGL renderer** (for massive grids)
-  - Vertex shader per cell
-  - Instanced rendering
-  - Expected: 100× speedup for dense patterns
-  - Fallback to Canvas 2D if WebGL unavailable
+- [x] **WebGL renderer** (`script.js:24-139`)
+  - Point-sprite rendering for cells
+  - Optional toggle, automatic fallback to Canvas 2D
+  - Effective for small cell sizes (≤3px)
 
-- [ ] **Shader effects**
-  - Bloom/glow for cells
-  - Fade-out animation on death
-  - Configurable visual style (retro, neon, minimal)
+- [ ] **Shader effects** (deferred)
+  - Bloom/glow, fade-out animations
+  - Lower priority, may add in future
 
 ---
 
@@ -205,13 +202,13 @@ Based on comprehensive code review findings. Organized by priority and estimated
 
 ### Performance Monitoring
 
-- [ ] **Add FPS counter overlay**
-  - Show actual vs target FPS
-  - Highlight when simulation can't keep up
+- [x] **Add FPS counter overlay** (`script.js`, `style.css`)
+  - Shows actual/target FPS with color coding (green/yellow/red)
+  - Displays chunk count and history buffer size
 
-- [ ] **Memory usage display**
-  - Chunk count, history buffer size
-  - Warn if approaching browser limits (~2GB)
+- [x] **Memory usage display**
+  - Chunk count displayed in FPS overlay
+  - History buffer size shown when history is enabled
 
 ### Accessibility
 
