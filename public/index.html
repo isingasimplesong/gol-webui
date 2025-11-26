@@ -76,8 +76,10 @@
             <!-- Zoom / Grid Size -->
             <div class="group">
                 <div class="label">Zoom Level</div>
-                <input type="range" id="zoom-range" min="2" max="40" value="10">
-                <div class="label" style="text-align:right" id="zoom-label">10px</div>
+                <div class="row" style="align-items: center; gap: 8px;">
+                    <input type="range" id="zoom-range" min="2" max="40" value="10" style="flex: 1;">
+                    <span id="zoom-label" style="font-size: 0.75rem; min-width: 35px; text-align: right;">10px</span>
+                </div>
             </div>
 
             <!-- Tools -->
