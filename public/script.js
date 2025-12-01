@@ -972,6 +972,10 @@ function rotateCurrentPattern() {
 }
 
 // RLE Parser (used by unified import)
+// Returns { ok: true, coords: [...] } or { ok: false, error: string }
+const RLE_MAX_CELLS = 10_000_000;
+const RLE_MAX_RUN_LENGTH = 100_000;
+
 function parseRLE(str) {
     const lines = str.split('\n');
     let data = '';
@@ -992,11 +996,19 @@ function parseRLE(str) {
         
         if (char >= '0' && char <= '9') {
             count = count * 10 + parseInt(char);
+            // Validate run-length during accumulation
+            if (count > RLE_MAX_RUN_LENGTH) {
+                return { ok: false, error: `Run length ${count} exceeds maximum (${RLE_MAX_RUN_LENGTH})` };
+            }
         } else if (char === 'b') { // Dead cell
             x += (count || 1);
             count = 0;
         } else if (char === 'o') { // Live cell
             const run = count || 1;
+            // Check cell limit before adding
+            if (coords.length + run > RLE_MAX_CELLS) {
+                return { ok: false, error: `Pattern exceeds maximum cell count (${RLE_MAX_CELLS})` };
+            }
             for (let k = 0; k < run; k++) {
                 coords.push([x + k, y]);
             }
@@ -1010,7 +1022,7 @@ function parseRLE(str) {
             break;
         }
     }
-    return coords;
+    return { ok: true, coords };
 }
 
 // Mouse move handler to track cursor and apply tools / panning
@@ -1204,7 +1216,12 @@ document.getElementById('file-import').onchange = (e) => {
 
 function loadFromRLE(rleString) {
     try {
-        const coords = parseRLE(rleString);
+        const result = parseRLE(rleString);
+        if (!result.ok) {
+            toast(result.error, true);
+            return;
+        }
+        const coords = result.coords;
         if (coords.length === 0) throw new Error("No cells found");
         
         // Convert coords to packed format for worker
@@ -1236,6 +1253,9 @@ function loadFromRLE(rleString) {
         toast("Invalid RLE", true);
     }
 }
+
+const MC_MAX_CELLS = 10_000_000;
+const MC_MAX_NODES = 1_000_000;
 
 function loadFromMacrocell(mcString) {
     try {
@@ -1297,6 +1317,11 @@ function loadFromMacrocell(mcString) {
                 // It's a leaf node (8x8 pattern in RLE)
                 nodes.push(parseLeaf(line));
             }
+            
+            // Limit node count to prevent DoS
+            if (nodes.length > MC_MAX_NODES) {
+                throw new Error(`Node count exceeds maximum (${MC_MAX_NODES})`);
+            }
         }
         
         if (nodes.length <= 1) throw new Error("No nodes found");
@@ -1322,6 +1347,9 @@ function loadFromMacrocell(mcString) {
                     for (let lx = 0; lx < 8; lx++) {
                         if (node.grid[ly][lx]) {
                             coords.push([x + lx, y + ly]);
+                            if (coords.length > MC_MAX_CELLS) {
+                                throw new Error(`Cell count exceeds maximum (${MC_MAX_CELLS})`);
+                            }
                         }
                     }
                 }
@@ -1366,7 +1394,7 @@ function loadFromMacrocell(mcString) {
         toast(`Loaded ${coords.length} cells`);
     } catch (e) {
         console.error(e);
-        toast("Invalid Macrocell", true);
+        toast(e.message || "Invalid Macrocell", true);
     }
 }
 

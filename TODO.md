@@ -9,12 +9,12 @@
   - [x] Refactor `step()` to call it + handle history/age/heatmap
   - [x] Refactor `stepSilent()` to call it directly
 
-- [ ] **Input validation for file imports** (script.js)
-  - [ ] Add max cell count limit (10M) in `parseRLE()`
-  - [ ] Validate run-length counts before processing
-  - [ ] Check node references in `loadFromMacrocell()`
-  - [ ] Return structured errors instead of throwing
-  - [ ] Test with malicious RLE like `999999999o!`
+- [x] **Input validation for file imports** (script.js)
+  - [x] Add max cell count limit (10M) in `parseRLE()`
+  - [x] Validate run-length counts before processing
+  - [x] Check node references in `loadFromMacrocell()`
+  - [x] Return structured errors instead of throwing
+  - [x] Test with malicious RLE like `999999999o!`
 
 - [ ] **Optimize bounding box calculation** (worker.js)
   - [ ] Maintain bbox incrementally during `step()`
