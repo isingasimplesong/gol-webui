@@ -4,10 +4,10 @@
 
 ### P0 - Critical (Do First)
 
-- [ ] **Eliminate `step()`/`stepSilent()` duplication** (worker.js)
-  - [ ] Extract SWAR logic into `computeNextGeneration(chunks) -> nextChunks`
-  - [ ] Refactor `step()` to call it + handle history/age/heatmap
-  - [ ] Refactor `stepSilent()` to call it directly
+- [x] **Eliminate `step()`/`stepSilent()` duplication** (worker.js)
+  - [x] Extract SWAR logic into `computeNextGeneration(chunks) -> nextChunks`
+  - [x] Refactor `step()` to call it + handle history/age/heatmap
+  - [x] Refactor `stepSilent()` to call it directly
 
 - [ ] **Input validation for file imports** (script.js)
   - [ ] Add max cell count limit (10M) in `parseRLE()`

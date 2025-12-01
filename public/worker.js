@@ -110,7 +110,6 @@ const BITS = CONFIG.BITS_PER_WORD;
 
 // State
 let chunks = new Map(); // Key: "cx,cy", Value: Uint32Array(32)
-let nextChunks = new Map(); // Double buffering for step
 
 // Viewport State (What the user sees)
 let viewX = 0;
@@ -721,14 +720,20 @@ function popHistory() {
 
 // --- Simulation ---
 
-function step() {
-    capturePreStepState();
-    nextChunks = new Map();
+/**
+ * Compute next generation using SWAR bitwise neighbor counting.
+ * Pure simulation logic - no side effects on history/age/heatmap.
+ * 
+ * @param {Map<string, Uint32Array>} currentChunks - Current state
+ * @returns {Map<string, Uint32Array>} - Next generation state
+ */
+function computeNextGeneration(currentChunks) {
+    const result = new Map();
     
     // Set of keys to process: All active chunks + their neighbors
     const toProcess = new Set();
     
-    for (let [key] of chunks) {
+    for (let [key] of currentChunks) {
         const [cx, cy] = key.split(',').map(Number);
         for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
@@ -737,82 +742,43 @@ function step() {
         }
     }
     
+    // Helper functions for bit shifting across chunk boundaries
+    const shiftRight = (curr, left) => (curr << 1) | (left >>> 31);
+    const shiftLeft  = (curr, right) => (curr >>> 1) | (right << 31);
+    
     for (let key of toProcess) {
         const [cx, cy] = key.split(',').map(Number);
         
         // Get 3x3 neighborhood of chunks
-        // We need access to rows above/below and bits left/right.
-        // Since chunks are 32-wide, "bits left/right" means neighbor chunks.
-        
-        // Optimization: Only strictly need neighbor chunks if cells are on edge?
-        // SWAR is row-based.
-        // To compute next state of Chunk(cx, cy), we need:
-        // - Chunk(cx, cy-1) (Bottom row)
-        // - Chunk(cx, cy+1) (Top row)
-        // - Chunk(cx-1, cy) (Right col)
-        // - Chunk(cx+1, cy) (Left col)
-        //And diagonals.
-        
-        // Wait, if Chunk(cx, cy) is empty, can it become alive?
-        // Only if neighbors have life.
-        // If we are processing 'key' because it's in 'toProcess', it means a neighbor (or self) has life.
-        
-        const C = chunks.get(getChunkKey(cx, cy)) || new Uint32Array(CHUNK_SIZE);
-        const N = chunks.get(getChunkKey(cx, cy - 1));
-        const S = chunks.get(getChunkKey(cx, cy + 1));
-        const W = chunks.get(getChunkKey(cx - 1, cy));
-        const E = chunks.get(getChunkKey(cx + 1, cy));
-        
-        // Diagonals (needed for corner bits)
-        const NW = chunks.get(getChunkKey(cx - 1, cy - 1));
-        const NE = chunks.get(getChunkKey(cx + 1, cy - 1));
-        const SW = chunks.get(getChunkKey(cx - 1, cy + 1));
-        const SE = chunks.get(getChunkKey(cx + 1, cy + 1));
-        
-        // If all are missing/empty, skip
-        // (Optimization check omitted for brevity, but `toProcess` logic handles most)
+        const C = currentChunks.get(getChunkKey(cx, cy)) || new Uint32Array(CHUNK_SIZE);
+        const N = currentChunks.get(getChunkKey(cx, cy - 1));
+        const S = currentChunks.get(getChunkKey(cx, cy + 1));
+        const W = currentChunks.get(getChunkKey(cx - 1, cy));
+        const E = currentChunks.get(getChunkKey(cx + 1, cy));
+        const NW = currentChunks.get(getChunkKey(cx - 1, cy - 1));
+        const NE = currentChunks.get(getChunkKey(cx + 1, cy - 1));
+        const SW = currentChunks.get(getChunkKey(cx - 1, cy + 1));
+        const SE = currentChunks.get(getChunkKey(cx + 1, cy + 1));
         
         const nextChunk = new Uint32Array(CHUNK_SIZE);
         let active = false;
         
-        // Iterate Rows in Chunk
         for (let y = 0; y < CHUNK_SIZE; y++) {
-            // Current Word
             const c_row = C[y];
             
-            // North Row
-            let n_row;
-            if (y > 0) n_row = C[y - 1];
-            else n_row = N ? N[CHUNK_SIZE - 1] : 0;
+            // North/South rows (handle chunk boundaries)
+            const n_row = y > 0 ? C[y - 1] : (N ? N[CHUNK_SIZE - 1] : 0);
+            const s_row = y < CHUNK_SIZE - 1 ? C[y + 1] : (S ? S[0] : 0);
             
-            // South Row
-            let s_row;
-            if (y < CHUNK_SIZE - 1) s_row = C[y + 1];
-            else s_row = S ? S[0] : 0;
-            
-            // For East/West neighbors, we need the bits from adjacent chunks
-            
-            // West Word (Left side)
+            // West/East words from neighbor chunks
             const w_chunk_row = W ? W[y] : 0;
-            // We need bit 31 of w_chunk_row to be bit -1 of our row.
-            
-            // East Word (Right side)
             const e_chunk_row = E ? E[y] : 0;
-            // We need bit 0 of e_chunk_row to be bit 32 of our row.
             
-            // Build neighbor vectors
-            // center: c_row
-            
-            // shiftRight(curr, left_neighbor_word)
-            const shiftRight = (curr, left) => (curr << 1) | (left >>> 31);
-            const shiftLeft  = (curr, right) => (curr >>> 1) | (right << 31);
-            
+            // Shifted neighbors (horizontal)
             const w = shiftRight(c_row, w_chunk_row);
             const e = shiftLeft(c_row, e_chunk_row);
             
-            // North Neighbors
-            // We need the north row's west/east bits too!
-            // That's why we fetched NW/NE chunks.
+            // North row's west/east neighbors
             let n_w_word, n_e_word;
             if (y > 0) {
                 n_w_word = W ? W[y - 1] : 0;
@@ -825,7 +791,7 @@ function step() {
             const nw = shiftRight(n_row, n_w_word);
             const ne = shiftLeft(n_row, n_e_word);
             
-            // South Neighbors
+            // South row's west/east neighbors
             let s_w_word, s_e_word;
             if (y < CHUNK_SIZE - 1) {
                 s_w_word = W ? W[y + 1] : 0;
@@ -838,10 +804,8 @@ function step() {
             const sw = shiftRight(s_row, s_w_word);
             const se = shiftLeft(s_row, s_e_word);
             
-            // SWAR Logic: Count neighbors using parallel bit addition
-            // Result: total0 (bit 0), total1 (bit 1), total2 (bit 2), total3 (bit 3)
-            // These 4 bits encode neighbor count 0-8 for each cell position
-            
+            // SWAR neighbor counting: parallel addition of 8 neighbor bits
+            // Result: 4-bit count (total0-total3) per cell position
             const s0 = n ^ s; const c0 = n & s;
             const s1 = w ^ e; const c1 = w & e;
             const s2 = nw ^ sw; const c2 = nw & sw;
@@ -849,42 +813,35 @@ function step() {
             
             const s01 = s0 ^ s1; const c01 = s0 & s1;
             const s23 = s2 ^ s3; const c23 = s2 & s3;
-            const total0 = s01 ^ s23; 
+            const total0 = s01 ^ s23;
             const carry_s_raw = s01 & s23;
-
-            // Sum Group A (carries from bit 0 stage)
+            
             const sum_A = c01 ^ c23 ^ carry_s_raw;
             const carry_A = (c01 & c23) | (c01 & carry_s_raw) | (c23 & carry_s_raw);
-
-            // Sum Group B (carries from input stage)
+            
             const c01_x = c0 ^ c1; const c01_a = c0 & c1;
             const c23_x = c2 ^ c3; const c23_a = c2 & c3;
             const sum_B = c01_x ^ c23_x;
             const carry_B = (c01_x & c23_x) | c01_a | c23_a;
-
-            // Final Sums - 4-bit neighbor count per cell
+            
             const total1 = sum_A ^ sum_B;
             const carry_AB = sum_A & sum_B;
             const total2 = carry_A ^ carry_B ^ carry_AB;
             const total3 = (carry_A & carry_B) | (carry_A & carry_AB) | (carry_B & carry_AB);
             
-            // Apply rule using neighbor count bits
-            // For each neighbor count 0-8, check birth/survival rules
-            // count = total3*8 + total2*4 + total1*2 + total0
+            // Build masks for each neighbor count (0-8)
+            const n0 = ~total3 & ~total2 & ~total1 & ~total0;
+            const n1 = ~total3 & ~total2 & ~total1 & total0;
+            const n2 = ~total3 & ~total2 & total1 & ~total0;
+            const n3 = ~total3 & ~total2 & total1 & total0;
+            const n4 = ~total3 & total2 & ~total1 & ~total0;
+            const n5 = ~total3 & total2 & ~total1 & total0;
+            const n6 = ~total3 & total2 & total1 & ~total0;
+            const n7 = ~total3 & total2 & total1 & total0;
+            const n8 = total3 & ~total2 & ~total1 & ~total0;
             
-            // Build masks for each neighbor count
-            const n0 = ~total3 & ~total2 & ~total1 & ~total0; // count == 0
-            const n1 = ~total3 & ~total2 & ~total1 & total0;  // count == 1
-            const n2 = ~total3 & ~total2 & total1 & ~total0;  // count == 2
-            const n3 = ~total3 & ~total2 & total1 & total0;   // count == 3
-            const n4 = ~total3 & total2 & ~total1 & ~total0;  // count == 4
-            const n5 = ~total3 & total2 & ~total1 & total0;   // count == 5
-            const n6 = ~total3 & total2 & total1 & ~total0;   // count == 6
-            const n7 = ~total3 & total2 & total1 & total0;    // count == 7
-            const n8 = total3 & ~total2 & ~total1 & ~total0;  // count == 8
-            
-            // Birth mask: dead cells that become alive
-            let birthMask = 0;
+            // Apply birth/survival rules
+            let birthMask = 0, survivalMask = 0;
             if (birthRule[0]) birthMask |= n0;
             if (birthRule[1]) birthMask |= n1;
             if (birthRule[2]) birthMask |= n2;
@@ -895,8 +852,6 @@ function step() {
             if (birthRule[7]) birthMask |= n7;
             if (birthRule[8]) birthMask |= n8;
             
-            // Survival mask: live cells that stay alive
-            let survivalMask = 0;
             if (survivalRule[0]) survivalMask |= n0;
             if (survivalRule[1]) survivalMask |= n1;
             if (survivalRule[2]) survivalMask |= n2;
@@ -907,7 +862,7 @@ function step() {
             if (survivalRule[7]) survivalMask |= n7;
             if (survivalRule[8]) survivalMask |= n8;
             
-            // Next state: birth (dead & birthMask) OR survival (alive & survivalMask)
+            // Next state: birth (dead & birthMask) | survival (alive & survivalMask)
             const nextState = (~c_row & birthMask) | (c_row & survivalMask);
             
             if (nextState !== 0) active = true;
@@ -915,28 +870,36 @@ function step() {
         }
         
         if (active) {
-            nextChunks.set(key, nextChunk);
+            result.set(key, nextChunk);
         }
     }
     
+    return result;
+}
+
+function step() {
+    capturePreStepState();
+    
+    const nextState = computeNextGeneration(chunks);
+    
     // Update ages if tracking enabled
     if (ageTrackingEnabled) {
-        updateAges(nextChunks);
+        updateAges(nextState);
     }
     
     // Update heatmap if enabled
     if (heatmapEnabled) {
-        updateHeatmap(chunks, nextChunks);
+        updateHeatmap(chunks, nextState);
     }
     
-    // Update population counter incrementally
+    // Update population counter
     let newPop = 0;
-    for (const chunk of nextChunks.values()) {
+    for (const chunk of nextState.values()) {
         newPop += countChunkPopulation(chunk);
     }
     totalPopulation = newPop;
     
-    chunks = nextChunks;
+    chunks = nextState;
     generation++;
     
     // Push delta to history (after chunks is updated)
@@ -1279,149 +1242,18 @@ function sendUpdate() {
     self.postMessage({ type: 'update', payload }, transferables);
 }
 
-// Silent step for generation jumping (no sendUpdate, no history)
+// Silent step for generation jumping (no sendUpdate, no history, no age/heatmap)
 function stepSilent() {
-    nextChunks = new Map();
-    
-    const toProcess = new Set();
-    for (let [key] of chunks) {
-        const [cx, cy] = key.split(',').map(Number);
-        for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-                toProcess.add(getChunkKey(cx + dx, cy + dy));
-            }
-        }
-    }
-    
-    for (let key of toProcess) {
-        const [cx, cy] = key.split(',').map(Number);
-        
-        const C = chunks.get(getChunkKey(cx, cy)) || new Uint32Array(CHUNK_SIZE);
-        const N = chunks.get(getChunkKey(cx, cy - 1));
-        const S = chunks.get(getChunkKey(cx, cy + 1));
-        const W = chunks.get(getChunkKey(cx - 1, cy));
-        const E = chunks.get(getChunkKey(cx + 1, cy));
-        const NW = chunks.get(getChunkKey(cx - 1, cy - 1));
-        const NE = chunks.get(getChunkKey(cx + 1, cy - 1));
-        const SW = chunks.get(getChunkKey(cx - 1, cy + 1));
-        const SE = chunks.get(getChunkKey(cx + 1, cy + 1));
-        
-        const nextChunk = new Uint32Array(CHUNK_SIZE);
-        let active = false;
-        
-        for (let y = 0; y < CHUNK_SIZE; y++) {
-            const c_row = C[y];
-            let n_row = y > 0 ? C[y - 1] : (N ? N[CHUNK_SIZE - 1] : 0);
-            let s_row = y < CHUNK_SIZE - 1 ? C[y + 1] : (S ? S[0] : 0);
-            
-            const w_chunk_row = W ? W[y] : 0;
-            const e_chunk_row = E ? E[y] : 0;
-            
-            const shiftRight = (curr, left) => (curr << 1) | (left >>> 31);
-            const shiftLeft  = (curr, right) => (curr >>> 1) | (right << 31);
-            
-            const w = shiftRight(c_row, w_chunk_row);
-            const e = shiftLeft(c_row, e_chunk_row);
-            
-            let n_w_word, n_e_word;
-            if (y > 0) {
-                n_w_word = W ? W[y - 1] : 0;
-                n_e_word = E ? E[y - 1] : 0;
-            } else {
-                n_w_word = NW ? NW[CHUNK_SIZE - 1] : 0;
-                n_e_word = NE ? NE[CHUNK_SIZE - 1] : 0;
-            }
-            const n = n_row;
-            const nw = shiftRight(n_row, n_w_word);
-            const ne = shiftLeft(n_row, n_e_word);
-            
-            let s_w_word, s_e_word;
-            if (y < CHUNK_SIZE - 1) {
-                s_w_word = W ? W[y + 1] : 0;
-                s_e_word = E ? E[y + 1] : 0;
-            } else {
-                s_w_word = SW ? SW[0] : 0;
-                s_e_word = SE ? SE[0] : 0;
-            }
-            const s = s_row;
-            const sw = shiftRight(s_row, s_w_word);
-            const se = shiftLeft(s_row, s_e_word);
-            
-            // SWAR neighbor count
-            const s0 = n ^ s; const c0 = n & s;
-            const s1 = w ^ e; const c1 = w & e;
-            const s2 = nw ^ sw; const c2 = nw & sw;
-            const s3 = ne ^ se; const c3 = ne & se;
-            
-            const s01 = s0 ^ s1; const c01 = s0 & s1;
-            const s23 = s2 ^ s3; const c23 = s2 & s3;
-            const total0 = s01 ^ s23;
-            const carry_s_raw = s01 & s23;
-            
-            const sum_A = c01 ^ c23 ^ carry_s_raw;
-            const carry_A = (c01 & c23) | (c01 & carry_s_raw) | (c23 & carry_s_raw);
-            
-            const c01_x = c0 ^ c1; const c01_a = c0 & c1;
-            const c23_x = c2 ^ c3; const c23_a = c2 & c3;
-            const sum_B = c01_x ^ c23_x;
-            const carry_B = (c01_x & c23_x) | c01_a | c23_a;
-            
-            const total1 = sum_A ^ sum_B;
-            const carry_AB = sum_A & sum_B;
-            const total2 = carry_A ^ carry_B ^ carry_AB;
-            const total3 = (carry_A & carry_B) | (carry_A & carry_AB) | (carry_B & carry_AB);
-            
-            // Neighbor count masks
-            const n0 = ~total3 & ~total2 & ~total1 & ~total0;
-            const n1 = ~total3 & ~total2 & ~total1 & total0;
-            const n2 = ~total3 & ~total2 & total1 & ~total0;
-            const n3 = ~total3 & ~total2 & total1 & total0;
-            const n4 = ~total3 & total2 & ~total1 & ~total0;
-            const n5 = ~total3 & total2 & ~total1 & total0;
-            const n6 = ~total3 & total2 & total1 & ~total0;
-            const n7 = ~total3 & total2 & total1 & total0;
-            const n8 = total3 & ~total2 & ~total1 & ~total0;
-            
-            let birthMask = 0, survivalMask = 0;
-            if (birthRule[0]) birthMask |= n0;
-            if (birthRule[1]) birthMask |= n1;
-            if (birthRule[2]) birthMask |= n2;
-            if (birthRule[3]) birthMask |= n3;
-            if (birthRule[4]) birthMask |= n4;
-            if (birthRule[5]) birthMask |= n5;
-            if (birthRule[6]) birthMask |= n6;
-            if (birthRule[7]) birthMask |= n7;
-            if (birthRule[8]) birthMask |= n8;
-            
-            if (survivalRule[0]) survivalMask |= n0;
-            if (survivalRule[1]) survivalMask |= n1;
-            if (survivalRule[2]) survivalMask |= n2;
-            if (survivalRule[3]) survivalMask |= n3;
-            if (survivalRule[4]) survivalMask |= n4;
-            if (survivalRule[5]) survivalMask |= n5;
-            if (survivalRule[6]) survivalMask |= n6;
-            if (survivalRule[7]) survivalMask |= n7;
-            if (survivalRule[8]) survivalMask |= n8;
-            
-            const nextState = (~c_row & birthMask) | (c_row & survivalMask);
-            
-            if (nextState !== 0) active = true;
-            nextChunk[y] = nextState;
-        }
-        
-        if (active) {
-            nextChunks.set(key, nextChunk);
-        }
-    }
+    const nextState = computeNextGeneration(chunks);
     
     // Update population counter
     let newPop = 0;
-    for (const chunk of nextChunks.values()) {
+    for (const chunk of nextState.values()) {
         newPop += countChunkPopulation(chunk);
     }
     totalPopulation = newPop;
     
-    chunks = nextChunks;
+    chunks = nextState;
     generation++;
 }
 
