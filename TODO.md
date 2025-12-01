@@ -16,10 +16,10 @@
   - [x] Return structured errors instead of throwing
   - [x] Test with malicious RLE like `999999999o!`
 
-- [ ] **Optimize bounding box calculation** (worker.js)
-  - [ ] Maintain bbox incrementally during `step()`
-  - [ ] Track min/max of active chunk coordinates
-  - [ ] Compute exact bbox lazily only on export
+- [x] **Optimize bounding box calculation** (worker.js)
+  - [x] Maintain bbox incrementally during `step()`
+  - [x] Track min/max of active chunk coordinates
+  - [x] Compute exact bbox lazily only on export
 
 ### P1 - High Priority
 

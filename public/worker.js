@@ -125,6 +125,12 @@ let timerID = null;
 // Running population counter (avoids full scan each frame)
 let totalPopulation = 0;
 
+// Chunk-level bounding box (approximate, updated incrementally)
+// Tracks min/max chunk coordinates - actual bbox is chunk_coord * CHUNK_SIZE
+let bboxMinCx = Infinity, bboxMaxCx = -Infinity;
+let bboxMinCy = Infinity, bboxMaxCy = -Infinity;
+let bboxDirty = true; // Forces recalculation when chunks are modified outside step()
+
 // History (ring buffer with delta encoding)
 // Each entry stores only chunks that changed from the previous state
 let historyEnabled = false;
@@ -237,6 +243,7 @@ self.onmessage = function(e) {
                 const vx = payload.idx % viewW;
                 const vy = Math.floor(payload.idx / viewW);
                 setCell(viewX + vx, viewY + vy, payload.val);
+                bboxDirty = true;
                 sendUpdate();
             }
             break;
@@ -250,6 +257,7 @@ self.onmessage = function(e) {
                      const vy = Math.floor(u.idx / viewW);
                      setCell(viewX + vx, viewY + vy, u.val);
                  }
+                 bboxDirty = true;
                  sendUpdate();
              }
              break;
@@ -259,6 +267,7 @@ self.onmessage = function(e) {
             ageChunks.clear();
             generation = 0;
             totalPopulation = 0;
+            bboxDirty = true;
             history = [];
             running = false;
             sendUpdate();
@@ -272,6 +281,7 @@ self.onmessage = function(e) {
             // Randomize only visible area (infinite random is impossible)
             randomize(payload, true);
             recalculateTotalPopulation();
+            bboxDirty = true;
             sendUpdate();
             break;
             
@@ -289,6 +299,7 @@ self.onmessage = function(e) {
              }
              generation = 0;
              recalculateTotalPopulation();
+             bboxDirty = true;
              sendUpdate();
              break;
              
@@ -406,6 +417,53 @@ function recalculateTotalPopulation() {
     for (const chunk of chunks.values()) {
         totalPopulation += countChunkPopulation(chunk);
     }
+}
+
+// Recalculate chunk-level bbox from scratch (O(chunks))
+function recalculateBbox() {
+    bboxMinCx = Infinity;
+    bboxMaxCx = -Infinity;
+    bboxMinCy = Infinity;
+    bboxMaxCy = -Infinity;
+    
+    for (const key of chunks.keys()) {
+        const [cx, cy] = key.split(',').map(Number);
+        if (cx < bboxMinCx) bboxMinCx = cx;
+        if (cx > bboxMaxCx) bboxMaxCx = cx;
+        if (cy < bboxMinCy) bboxMinCy = cy;
+        if (cy > bboxMaxCy) bboxMaxCy = cy;
+    }
+    bboxDirty = false;
+}
+
+// Update bbox from new chunks map (after step)
+function updateBboxFromChunks(newChunks) {
+    bboxMinCx = Infinity;
+    bboxMaxCx = -Infinity;
+    bboxMinCy = Infinity;
+    bboxMaxCy = -Infinity;
+    
+    for (const key of newChunks.keys()) {
+        const [cx, cy] = key.split(',').map(Number);
+        if (cx < bboxMinCx) bboxMinCx = cx;
+        if (cx > bboxMaxCx) bboxMaxCx = cx;
+        if (cy < bboxMinCy) bboxMinCy = cy;
+        if (cy > bboxMaxCy) bboxMaxCy = cy;
+    }
+    bboxDirty = false;
+}
+
+// Get approximate bounding box (chunk-aligned, fast)
+function getApproxBbox() {
+    if (bboxDirty) recalculateBbox();
+    if (bboxMinCx === Infinity) return null; // No chunks
+    
+    return {
+        x: bboxMinCx * CHUNK_SIZE,
+        y: bboxMinCy * CHUNK_SIZE,
+        w: (bboxMaxCx - bboxMinCx + 1) * CHUNK_SIZE,
+        h: (bboxMaxCy - bboxMinCy + 1) * CHUNK_SIZE
+    };
 }
 
 function garbageCollectChunks() {
@@ -715,6 +773,7 @@ function popHistory() {
     applyDeltaReverse(state.delta);
     generation = state.generation;
     totalPopulation = state.population;
+    bboxDirty = true;
     return true;
 }
 
@@ -892,12 +951,13 @@ function step() {
         updateHeatmap(chunks, nextState);
     }
     
-    // Update population counter
+    // Update population counter and bbox
     let newPop = 0;
     for (const chunk of nextState.values()) {
         newPop += countChunkPopulation(chunk);
     }
     totalPopulation = newPop;
+    updateBboxFromChunks(nextState);
     
     chunks = nextState;
     generation++;
@@ -1149,35 +1209,8 @@ function sendUpdate() {
         }
     }
 
-    // Calculate bounding box
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (let [key, chunk] of chunks) {
-        const [cx, cy] = key.split(',').map(Number);
-        const x0 = cx * CHUNK_SIZE;
-        const y0 = cy * CHUNK_SIZE;
-        
-        for (let ly = 0; ly < CHUNK_SIZE; ly++) {
-            const word = chunk[ly];
-            if (word === 0) continue;
-            
-            for (let lx = 0; lx < 32; lx++) {
-                if ((word >>> lx) & 1) {
-                    const gx = x0 + lx;
-                    const gy = y0 + ly;
-                    minX = Math.min(minX, gx);
-                    maxX = Math.max(maxX, gx);
-                    minY = Math.min(minY, gy);
-                    maxY = Math.max(maxY, gy);
-                }
-            }
-        }
-    }
-    
-    const boundingBox = totalPopulation > 0 ? {
-        x: minX, y: minY,
-        w: maxX - minX + 1,
-        h: maxY - minY + 1
-    } : null;
+    // Use chunk-level approximate bounding box (O(1) instead of O(population))
+    const boundingBox = getApproxBbox();
 
     const payload = {
         grid: buffer,
