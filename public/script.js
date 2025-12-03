@@ -517,6 +517,24 @@ class UI {
         this.drawSelection();
     }
 
+    // Draw ghost pattern for paste mode
+    drawGhostPattern() {
+        const cellSize = CONF.cellSize;
+        if (this.mode === 'paste' && !this.isRunning) {
+            const sz = cellSize > 1 ? cellSize - 1 : 1;
+            this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
+            const p = getCurrentPattern();
+            const mx = Math.floor(this.mouse.x / cellSize);
+            const my = Math.floor(this.mouse.y / cellSize);
+
+            for (let [px, py] of p) {
+                const tx = (mx + px) * cellSize;
+                const ty = (my + py) * cellSize;
+                this.ctx.fillRect(tx, ty, sz, sz);
+            }
+        }
+    }
+
     // Draw selection rectangle overlay
     drawSelection() {
         const sel = this.selection;
