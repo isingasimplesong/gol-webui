@@ -19,7 +19,7 @@
 // =============================================================================
 // VERSION - Update this for each release
 // =============================================================================
-const APP_VERSION = 'v1.3.1';
+const APP_VERSION = 'v1.3.2';
 
 // =============================================================================
 // CONSTANTS
@@ -721,6 +721,20 @@ document.getElementById('app-version').textContent = APP_VERSION;
 
 const ui = new UI(canvas);
 
+// Enable history by default
+{
+    const historyToggle = document.getElementById('history-toggle');
+    const historySize = document.getElementById('history-size');
+    const revBtn = document.getElementById('btn-rev-step');
+    if (historyToggle.checked) {
+        revBtn.disabled = false;
+        ui.worker.postMessage({
+            type: 'setHistory',
+            payload: { enabled: true, size: parseInt(historySize.value) }
+        });
+    }
+}
+
 // =============================================================================
 // URL HASH STATE
 // =============================================================================
@@ -1410,7 +1424,7 @@ async function copySelection() {
     try {
         await navigator.clipboard.writeText(rle);
         toast(`Copied ${coords.length} cells`);
-    } catch (_err) {
+    } catch {
         toast('Copy failed', true);
     }
 }
