@@ -99,21 +99,21 @@
                     <div class="row">
                         <button class="tool-btn active" data-mode="draw">Draw</button>
                         <button class="tool-btn" data-mode="erase">Erase</button>
-                        <button class="tool-btn" data-mode="move" title="Drag to Pan">Move</button>
                         <button class="tool-btn" data-mode="select" title="Rectangle Select">Select</button>
                     </div>
                     <div class="row">
+                        <button class="tool-btn" data-mode="move" title="Drag to Pan">Move</button>
                         <button id="btn-center" title="Center View (0,0)">⌖</button>
                     </div>
+                    <select id="pattern-select">
+                        <!-- Populated dynamically with optgroups -->
+                    </select>
                     <div class="row">
                         <button class="tool-btn" data-mode="paste">Paste</button>
                         <button id="btn-load-pattern" title="Load pattern to grid (replaces current)">Load</button>
                         <button id="btn-rotate" title="Rotate 90°">↻</button>
                         <button id="btn-reset-pattern" title="Reset to base orientation">⟲</button>
                     </div>
-                    <select id="pattern-select">
-                        <!-- Populated dynamically with optgroups -->
-                    </select>
                 </div>
 
                 <!-- Import/Export -->
