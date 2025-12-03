@@ -149,209 +149,189 @@ let heatmapChunks = new Map(); // Key: "cx,cy", Value: Uint8Array(1024) - activi
 let heatmapDecayCounter = 0;
 const HEATMAP_DECAY_INTERVAL = 10; // Decay every N steps
 
-// Initialize
+// Message handlers registry
+const messageHandlers = {
+    init(payload) {
+        viewW = payload.cols;
+        viewH = payload.rows;
+        if (chunks.size === 0 && !payload.preserve) {
+            seedDefaultPattern();
+            recalculateTotalPopulation();
+        }
+        sendUpdate();
+    },
+    
+    resize(payload) {
+        viewW = payload.cols;
+        viewH = payload.rows;
+        sendUpdate();
+    },
+    
+    viewportMove(payload) {
+        viewX = payload.x;
+        viewY = payload.y;
+        sendUpdate();
+    },
+    
+    start() {
+        if (!running) {
+            running = true;
+            loop();
+        }
+    },
+    
+    stop() {
+        running = false;
+        if (timerID) clearTimeout(timerID);
+        sendUpdate();
+    },
+    
+    step() {
+        running = false;
+        if (timerID) clearTimeout(timerID);
+        step();
+    },
+    
+    reverse() {
+        running = false;
+        if (timerID) clearTimeout(timerID);
+        if (popHistory()) {
+            sendUpdate();
+        }
+    },
+    
+    setFps(payload) {
+        fps = payload;
+    },
+    
+    setHistory(payload) {
+        historyEnabled = payload.enabled;
+        historyMaxSize = payload.size || 20;
+        if (!historyEnabled) {
+            history = [];
+        }
+    },
+    
+    setAgeTracking(payload) {
+        ageTrackingEnabled = payload;
+        if (!ageTrackingEnabled) {
+            ageChunks.clear();
+        } else {
+            initializeAges();
+        }
+        sendUpdate();
+    },
+    
+    setHeatmap(payload) {
+        heatmapEnabled = payload;
+        if (!heatmapEnabled) {
+            heatmapChunks.clear();
+        }
+        sendUpdate();
+    },
+    
+    setCell(payload) {
+        // UI sends 'idx' as flat view index, convert to global
+        const vx = payload.idx % viewW;
+        const vy = Math.floor(payload.idx / viewW);
+        setCell(viewX + vx, viewY + vy, payload.val);
+        bboxDirty = true;
+        sendUpdate();
+    },
+    
+    setCells(payload) {
+        if (payload.updates) {
+            for (let u of payload.updates) {
+                const vx = u.idx % viewW;
+                const vy = Math.floor(u.idx / viewW);
+                setCell(viewX + vx, viewY + vy, u.val);
+            }
+            bboxDirty = true;
+            sendUpdate();
+        }
+    },
+    
+    clear() {
+        chunks.clear();
+        ageChunks.clear();
+        generation = 0;
+        totalPopulation = 0;
+        bboxDirty = true;
+        history = [];
+        running = false;
+        sendUpdate();
+    },
+    
+    randomize(payload) {
+        chunks.clear();
+        ageChunks.clear();
+        history = [];
+        randomize(payload, true);
+        recalculateTotalPopulation();
+        bboxDirty = true;
+        sendUpdate();
+    },
+    
+    load(payload) {
+        chunks.clear();
+        ageChunks.clear();
+        if (payload.packed) {
+            loadFlatData(payload.data, payload.w, payload.h);
+        }
+        generation = 0;
+        recalculateTotalPopulation();
+        bboxDirty = true;
+        sendUpdate();
+    },
+    
+    export() {
+        exportWorld();
+    },
+    
+    setRule(payload) {
+        if (setRule(payload)) {
+            self.postMessage({ type: 'ruleChanged', payload: currentRuleString });
+        } else {
+            self.postMessage({ type: 'ruleError', payload: 'Invalid rule format' });
+        }
+    },
+    
+    getPresets() {
+        self.postMessage({ type: 'presets', payload: RULE_PRESETS });
+    },
+    
+    jumpToGen(payload) {
+        const targetGen = payload;
+        if (targetGen <= generation) {
+            self.postMessage({ type: 'jumpError', payload: 'Can only jump forward' });
+            return;
+        }
+        const steps = targetGen - generation;
+        const wasHistoryEnabled = historyEnabled;
+        historyEnabled = false;
+        
+        for (let i = 0; i < steps; i++) {
+            stepSilent();
+            if (i > 0 && i % 1000 === 0) {
+                self.postMessage({ 
+                    type: 'jumpProgress', 
+                    payload: { current: generation, target: targetGen }
+                });
+            }
+        }
+        
+        historyEnabled = wasHistoryEnabled;
+        sendUpdate();
+        self.postMessage({ type: 'jumpComplete', payload: generation });
+    }
+};
+
+// Message dispatcher
 self.onmessage = function(e) {
     const { type, payload } = e.data;
-
-    switch(type) {
-        case 'init':
-            // Payload is viewport dimensions now
-            viewW = payload.cols;
-            viewH = payload.rows;
-            // If first run, seed with interesting default pattern
-            if (chunks.size === 0 && !payload.preserve) {
-                seedDefaultPattern();
-                recalculateTotalPopulation();
-            }
-            sendUpdate();
-            break;
-            
-        case 'resize':
-             viewW = payload.cols;
-             viewH = payload.rows;
-             sendUpdate();
-             break;
-             
-        case 'viewportMove':
-             viewX = payload.x;
-             viewY = payload.y;
-             sendUpdate(); // Just re-render viewport
-             break;
-
-        case 'start':
-            if (!running) {
-                running = true;
-                loop();
-            }
-            break;
-
-        case 'stop':
-            running = false;
-            if (timerID) clearTimeout(timerID);
-            sendUpdate();
-            break;
-
-        case 'step':
-            running = false;
-            if (timerID) clearTimeout(timerID);
-            step();
-            break;
-            
-        case 'reverse':
-            running = false;
-            if (timerID) clearTimeout(timerID);
-            if (popHistory()) {
-                sendUpdate();
-            }
-            break;
-
-        case 'setFps':
-            fps = payload;
-            break;
-
-        case 'setHistory':
-            historyEnabled = payload.enabled;
-            historyMaxSize = payload.size || 20;
-            if (!historyEnabled) {
-                history = []; // Free memory
-            }
-            break;
-
-        case 'setAgeTracking':
-            ageTrackingEnabled = payload;
-            if (!ageTrackingEnabled) {
-                ageChunks.clear(); // Free memory
-            } else {
-                // Initialize ages for existing cells
-                initializeAges();
-            }
-            sendUpdate();
-            break;
-            
-        case 'setHeatmap':
-            heatmapEnabled = payload;
-            if (!heatmapEnabled) {
-                heatmapChunks.clear();
-            }
-            sendUpdate();
-            break;
-
-        case 'setCell':
-            // Payload: global absolute idx? Or relative to view?
-            // Let's assume UI sends global coordinates now, or we assume UI sends view-relative idx
-            // UI sends 'idx' which is flat view index. We convert to global.
-            {
-                const vx = payload.idx % viewW;
-                const vy = Math.floor(payload.idx / viewW);
-                setCell(viewX + vx, viewY + vy, payload.val);
-                bboxDirty = true;
-                sendUpdate();
-            }
-            break;
-
-        case 'setCells':
-             // Bulk update relative to viewport or global?
-             // Let's handle view-relative for paste
-             if (payload.updates) {
-                 for(let u of payload.updates) {
-                     const vx = u.idx % viewW;
-                     const vy = Math.floor(u.idx / viewW);
-                     setCell(viewX + vx, viewY + vy, u.val);
-                 }
-                 bboxDirty = true;
-                 sendUpdate();
-             }
-             break;
-
-        case 'clear':
-            chunks.clear();
-            ageChunks.clear();
-            generation = 0;
-            totalPopulation = 0;
-            bboxDirty = true;
-            history = [];
-            running = false;
-            sendUpdate();
-            break;
-
-        case 'randomize':
-            // Clear existing pattern before randomizing (avoids overlay behavior)
-            chunks.clear();
-            ageChunks.clear();
-            history = [];
-            // Randomize only visible area (infinite random is impossible)
-            randomize(payload, true);
-            recalculateTotalPopulation();
-            bboxDirty = true;
-            sendUpdate();
-            break;
-            
-        case 'load':
-             // Complex: Loading a file into infinite grid.
-             // We'll just load it at (0,0) or center of view?
-             // For now, clear and load at (0,0).
-             chunks.clear();
-             ageChunks.clear();
-             if (payload.packed) {
-                 // Legacy/Previous format was flat array.
-                 // We need to migrate load logic.
-                 // Assuming payload.data is the Uint32Array and payload.w/h
-                 loadFlatData(payload.data, payload.w, payload.h);
-             }
-             generation = 0;
-             recalculateTotalPopulation();
-             bboxDirty = true;
-             sendUpdate();
-             break;
-             
-        case 'export':
-            // Export only active chunks? Or viewport?
-            // Let's export active bounding box.
-            exportWorld();
-            break;
-            
-        case 'setRule':
-            if (setRule(payload)) {
-                // Optionally clear/reset on rule change
-                self.postMessage({ type: 'ruleChanged', payload: currentRuleString });
-            } else {
-                self.postMessage({ type: 'ruleError', payload: 'Invalid rule format' });
-            }
-            break;
-            
-        case 'getPresets':
-            self.postMessage({ type: 'presets', payload: RULE_PRESETS });
-            break;
-            
-        case 'jumpToGen':
-            {
-                const targetGen = payload;
-                if (targetGen <= generation) {
-                    self.postMessage({ type: 'jumpError', payload: 'Can only jump forward' });
-                    break;
-                }
-                const steps = targetGen - generation;
-                // Disable history during jump to save memory
-                const wasHistoryEnabled = historyEnabled;
-                historyEnabled = false;
-                
-                // Run steps without rendering
-                for (let i = 0; i < steps; i++) {
-                    stepSilent();
-                    // Report progress every 1000 steps
-                    if (i > 0 && i % 1000 === 0) {
-                        self.postMessage({ 
-                            type: 'jumpProgress', 
-                            payload: { current: generation, target: targetGen }
-                        });
-                    }
-                }
-                
-                historyEnabled = wasHistoryEnabled;
-                sendUpdate();
-                self.postMessage({ type: 'jumpComplete', payload: generation });
-            }
-            break;
+    const handler = messageHandlers[type];
+    if (handler) {
+        handler(payload);
     }
 };
 
