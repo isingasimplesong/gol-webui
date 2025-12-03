@@ -18,7 +18,7 @@ A high-performance, infinite-grid implementation of Conway's Game of Life with a
 - Play/Pause with adjustable speed (0.1-60 FPS, including fractional speeds)
 - Single-step forward/backward
 - **Generation jumping**: Skip to any future generation instantly
-- **History buffer**: Optional step-backward with configurable buffer size (5-100 steps)
+- **History buffer**: Step-backward with configurable buffer size (5-100 steps, enabled by default)
 
 ### Visualization
 
@@ -36,6 +36,7 @@ A high-performance, infinite-grid implementation of Conway's Game of Life with a
 
 - **Draw**: Click/drag to create cells
 - **Erase**: Click/drag to remove cells
+- **Select**: Rectangle selection with copy/cut/delete
 - **Move**: Pan the viewport
 - **Paste**: Place patterns from library (click to place)
 - **Load**: Load pattern directly to grid
@@ -93,7 +94,10 @@ python3 -m http.server 8088
 | `[` / `]` | Decrease/Increase speed |
 | `Tab` | Toggle sidebar |
 | `Ctrl+/` | Show help |
-| `Esc` | Close modals |
+| `Ctrl+C` | Copy selection as RLE |
+| `Ctrl+X` | Cut selection |
+| `Delete` | Delete selection |
+| `Esc` | Clear selection / Close modals |
 | `Scroll` | Zoom in/out |
 
 ## File Formats
