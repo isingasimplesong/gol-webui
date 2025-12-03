@@ -39,9 +39,9 @@
   - [x] Document convention in header comments (script.js, worker.js)
   - [x] Rename `cellX/cellY` → `vx/vy` in render loops
 
-- [ ] **Message handler registry** (worker.js)
-  - [ ] Replace switch statement with handler object lookup
-  - [ ] Test all message types still work
+- [x] **Message handler registry** (worker.js)
+  - [x] Replace switch statement with `messageHandlers` object
+  - [x] Cleaner dispatcher: `messageHandlers[type]?.(payload)`
 
 ### P2 - Medium Priority
 
