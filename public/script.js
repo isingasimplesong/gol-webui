@@ -1,17 +1,17 @@
 /**
  * UI & Render Logic (Main Thread)
- * 
+ *
  * COORDINATE SYSTEMS:
- * 
+ *
  * - px, py: Canvas pixel coordinates (raw mouse/render)
  * - vx, vy: Viewport cell coordinates, range [0, cols) x [0, rows)
  * - gx, gy: Global cell coordinates (viewX + vx, viewY + vy)
- * 
+ *
  * NAMING CONVENTION:
  * - Variables ending in X/Y are pixel coords unless prefixed
  * - cellX/cellY are legacy aliases for vx/vy (viewport cells)
  * - Use vx/vy for viewport, gx/gy for global in new code
- * 
+ *
  * The UI class manages viewport offset (viewX, viewY) and communicates
  * with the worker using flat viewport indices for cell operations.
  */
@@ -45,17 +45,17 @@ class WebGLRenderer {
         this.positionBuffer = null;
         this.init();
     }
-    
+
     init() {
         const gl = this.gl;
-        
+
         // Vertex shader: positions cells
         const vsSource = `
             attribute vec2 a_position;
             uniform vec2 u_resolution;
             uniform vec2 u_offset;
             uniform float u_cellSize;
-            
+
             void main() {
                 vec2 pos = (a_position * u_cellSize + u_offset) / u_resolution * 2.0 - 1.0;
                 pos.y = -pos.y; // Flip Y
@@ -63,50 +63,50 @@ class WebGLRenderer {
                 gl_PointSize = u_cellSize;
             }
         `;
-        
+
         // Fragment shader: colors cells
         const fsSource = `
             precision mediump float;
             uniform vec3 u_color;
-            
+
             void main() {
                 gl_FragColor = vec4(u_color, 1.0);
             }
         `;
-        
+
         // Compile shaders
         const vs = this.compileShader(gl.VERTEX_SHADER, vsSource);
         const fs = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
-        
+
         // Link program
         this.program = gl.createProgram();
         gl.attachShader(this.program, vs);
         gl.attachShader(this.program, fs);
         gl.linkProgram(this.program);
-        
+
         if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
             console.error('Shader program failed:', gl.getProgramInfoLog(this.program));
             this.available = false;
             return;
         }
-        
+
         // Get attribute/uniform locations
         this.positionLoc = gl.getAttribLocation(this.program, 'a_position');
         this.resolutionLoc = gl.getUniformLocation(this.program, 'u_resolution');
         this.offsetLoc = gl.getUniformLocation(this.program, 'u_offset');
         this.cellSizeLoc = gl.getUniformLocation(this.program, 'u_cellSize');
         this.colorLoc = gl.getUniformLocation(this.program, 'u_color');
-        
+
         // Create position buffer
         this.positionBuffer = gl.createBuffer();
     }
-    
+
     compileShader(type, source) {
         const gl = this.gl;
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
-        
+
         if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
             console.error('Shader compile error:', gl.getShaderInfoLog(shader));
             gl.deleteShader(shader);
@@ -114,33 +114,33 @@ class WebGLRenderer {
         }
         return shader;
     }
-    
+
     render(grid, stride, cols, rows, cellSize, liveColor) {
         if (!this.available) return false;
-        
+
         const gl = this.gl;
-        
+
         // Resize canvas if needed
         if (this.canvas.width !== this.canvas.clientWidth || this.canvas.height !== this.canvas.clientHeight) {
             this.canvas.width = this.canvas.clientWidth;
             this.canvas.height = this.canvas.clientHeight;
             gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         }
-        
+
         // Clear with dead color
         const deadRGB = hexToRGB(CONF.deadColor);
         gl.clearColor(deadRGB.r / 255, deadRGB.g / 255, deadRGB.b / 255, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        
+
         // Build position array from grid
         const positions = [];
         for (let i = 0; i < grid.length; i++) {
             const word = grid[i];
             if (word === 0) continue;
-            
+
             const wordRow = Math.floor(i / stride);
             const wordColStart = (i % stride) * BITS_PER_WORD;
-            
+
             for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
                     const vx = wordColStart + bit;
@@ -150,31 +150,31 @@ class WebGLRenderer {
                 }
             }
         }
-        
+
         if (positions.length === 0) return true;
-        
+
         // Upload positions
         gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
-        
+
         // Use program
         gl.useProgram(this.program);
-        
+
         // Set uniforms
         gl.uniform2f(this.resolutionLoc, this.canvas.width, this.canvas.height);
         gl.uniform2f(this.offsetLoc, 0, 0);
         gl.uniform1f(this.cellSizeLoc, cellSize);
-        
+
         const liveRGB = hexToRGB(liveColor);
         gl.uniform3f(this.colorLoc, liveRGB.r / 255, liveRGB.g / 255, liveRGB.b / 255);
-        
+
         // Enable position attribute
         gl.enableVertexAttribArray(this.positionLoc);
         gl.vertexAttribPointer(this.positionLoc, 2, gl.FLOAT, false, 0, 0);
-        
+
         // Draw points
         gl.drawArrays(gl.POINTS, 0, positions.length / 2);
-        
+
         return true;
     }
 }
@@ -287,7 +287,7 @@ let currentPatternCoords = null; // Cache of current pattern coords (may be rota
 
 function getCurrentPattern() {
     if (!currentPatternCoords) {
-        currentPatternCoords = PATTERN_CACHE[currentPatternKey] 
+        currentPatternCoords = PATTERN_CACHE[currentPatternKey]
             ? [...PATTERN_CACHE[currentPatternKey].map(c => [...c])]
             : [[0,0]];
     }
@@ -307,7 +307,7 @@ function loadPatternToGrid(patternKey) {
         toast('Pattern not found', true);
         return;
     }
-    
+
     // Build RLE from coords for loading
     const [category, name] = patternKey.split('::');
     const rle = PATTERN_LIBRARY[category]?.[name];
@@ -323,21 +323,21 @@ function loadPatternToGrid(patternKey) {
 function populatePatternDropdown() {
     const select = document.getElementById('pattern-select');
     select.innerHTML = '';
-    
+
     for (const [category, patterns] of Object.entries(PATTERN_LIBRARY)) {
         const optgroup = document.createElement('optgroup');
         optgroup.label = category;
-        
+
         for (const name of Object.keys(patterns)) {
             const option = document.createElement('option');
             option.value = `${category}::${name}`;
             option.textContent = name;
             optgroup.appendChild(option);
         }
-        
+
         select.appendChild(optgroup);
     }
-    
+
     // Select Glider by default
     select.value = 'Spaceships::Glider';
 }
@@ -348,15 +348,15 @@ class UI {
         this.ctx = canvas.getContext('2d', { alpha: false });
         this.cols = 0;
         this.rows = 0;
-        this.stride = 0; 
+        this.stride = 0;
         this.lastGrid = null;
         this.lastAges = null;
         this.lastHeatmap = null;
-        
+
         // Viewport State
         this.viewX = 0;
         this.viewY = 0;
-        
+
         // Worker
         this.worker = new Worker('worker.js');
         this.worker.onmessage = this.onWorkerMessage.bind(this);
@@ -366,13 +366,13 @@ class UI {
         this.isRunning = false;
         this.mouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
         this.mode = 'draw';
-        
+
         // Population history for graph
         this.popHistory = [];
         this.popHistoryMax = 100;
         this.lastBbox = null;
         this.currentRule = 'B3/S23';
-        
+
         // WebGL renderer (optional)
         this.webglRenderer = null;
         this.useWebGL = false;
@@ -380,7 +380,7 @@ class UI {
         // Init
         this.resize(true);
         window.addEventListener('resize', () => this.resize(false));
-        
+
         // UI Loop
         this.renderLoop = this.renderLoop.bind(this);
         requestAnimationFrame(this.renderLoop);
@@ -392,13 +392,13 @@ class UI {
         this.cols = Math.floor(this.canvas.width / CONF.cellSize);
         this.rows = Math.floor(this.canvas.height / CONF.cellSize);
         this.stride = Math.ceil(this.cols / BITS_PER_WORD);
-        
-        // Update viewport size (preserve: true implied for init if not explicit, 
+
+        // Update viewport size (preserve: true implied for init if not explicit,
         // but here we use 'resize' type for safety if already running)
         if (this.worker) {
-            this.worker.postMessage({ 
-                type: isInit ? 'init' : 'resize', 
-                payload: { cols: this.cols, rows: this.rows } 
+            this.worker.postMessage({
+                type: isInit ? 'init' : 'resize',
+                payload: { cols: this.cols, rows: this.rows }
             });
         }
     }
@@ -412,26 +412,27 @@ class UI {
             this.isRunning = payload.running;
             this.lastBbox = payload.bbox;
             if (payload.rule) this.currentRule = payload.rule;
-            
+
             // Track population history
             this.popHistory.push(payload.pop);
             if (this.popHistory.length > this.popHistoryMax) {
                 this.popHistory.shift();
             }
-            
+
             // Update FPS display
             if (payload.fps) {
                 updateFpsDisplay(payload.fps.actual, payload.fps.target, payload.chunks, payload.historySize);
             }
-            
+
             updateStats(payload.generation, payload.pop, payload.bbox, this.currentRule);
             updateBtnState(this.isRunning);
-            this.draw(); 
+            this.draw();
         } else if (type === 'exportData') {
              this.handleExport(payload);
         } else if (type === 'ruleChanged') {
             this.currentRule = payload;
             toast(`Rule: ${payload}`);
+            if (typeof hashState !== 'undefined') hashState.update();
         } else if (type === 'ruleError') {
             toast(payload, true);
         } else if (type === 'jumpProgress') {
@@ -455,7 +456,7 @@ class UI {
         if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1;
         return y * this.cols + x;
     }
-    
+
     moveViewport(dx, dy) {
         this.viewX -= dx;
         this.viewY -= dy;
@@ -463,6 +464,8 @@ class UI {
             type: 'viewportMove',
             payload: { x: Math.round(this.viewX), y: Math.round(this.viewY) }
         });
+        // Update URL hash (debounced)
+        if (typeof hashState !== 'undefined') hashState.update();
     }
 
     handleExport(data) {
@@ -484,7 +487,7 @@ class UI {
         const cellSize = CONF.cellSize;
         const canvasW = this.canvas.width;
         const canvasH = this.canvas.height;
-        
+
         // Try WebGL for small cells (very fast for many cells)
         if (this.useWebGL && cellSize <= 3 && !CONF.useAgeColor && !CONF.useHeatmap) {
             if (!this.webglRenderer) {
@@ -498,7 +501,7 @@ class UI {
                 }
             }
         }
-        
+
         // Use ImageData for fast pixel rendering when cell size is small
         // For larger cells with grid lines, use fillRect approach
         if (cellSize <= 3) {
@@ -509,7 +512,7 @@ class UI {
 
         this.drawGhostPattern();
     }
-    
+
     // Draw ghost pattern for paste mode
     drawGhostPattern() {
         const cellSize = CONF.cellSize;
@@ -519,7 +522,7 @@ class UI {
             const p = getCurrentPattern();
             const mx = Math.floor(this.mouse.x / cellSize);
             const my = Math.floor(this.mouse.y / cellSize);
-            
+
             for (let [px, py] of p) {
                 const tx = (mx + px) * cellSize;
                 const ty = (my + py) * cellSize;
@@ -533,17 +536,17 @@ class UI {
         const cellSize = CONF.cellSize;
         const canvasW = this.canvas.width;
         const canvasH = this.canvas.height;
-        
+
         // Create or reuse ImageData
         if (!this.imageData || this.imageData.width !== canvasW || this.imageData.height !== canvasH) {
             this.imageData = this.ctx.createImageData(canvasW, canvasH);
         }
         const data = this.imageData.data;
-        
+
         // Parse colors once
         const deadRGB = hexToRGB(CONF.deadColor);
         const liveRGB = hexToRGB(CONF.liveColor);
-        
+
         // Fill with dead color
         for (let i = 0; i < data.length; i += 4) {
             data[i] = deadRGB.r;
@@ -551,20 +554,20 @@ class UI {
             data[i + 2] = deadRGB.b;
             data[i + 3] = 255;
         }
-        
+
         // Draw live cells
         for (let i = 0; i < this.lastGrid.length; i++) {
             const word = this.lastGrid[i];
             if (word === 0) continue;
-            
+
             const wordRow = Math.floor(i / this.stride);
             const wordColStart = (i % this.stride) * BITS_PER_WORD;
-            
+
             for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
                     const vx = wordColStart + bit;
                     const vy = wordRow;
-                    
+
                     // Determine color
                     let rgb;
                     if (CONF.useAgeColor && this.lastAges) {
@@ -573,13 +576,13 @@ class UI {
                     } else {
                         rgb = liveRGB;
                     }
-                    
+
                     // Fill cell pixels (vx/vy -> pixel coords)
                     const startX = vx * cellSize;
                     const startY = vy * cellSize;
                     const endX = Math.min(startX + cellSize, canvasW);
                     const endY = Math.min(startY + cellSize, canvasH);
-                    
+
                     for (let py = startY; py < endY; py++) {
                         for (let px = startX; px < endX; px++) {
                             const idx = (py * canvasW + px) * 4;
@@ -591,7 +594,7 @@ class UI {
                 }
             }
         }
-        
+
         this.ctx.putImageData(this.imageData, 0, 0);
     }
 
@@ -600,11 +603,11 @@ class UI {
         const cellSize = CONF.cellSize;
         const canvasW = this.canvas.width;
         const canvasH = this.canvas.height;
-        
+
         // Clear
         this.ctx.fillStyle = CONF.deadColor;
         this.ctx.fillRect(0, 0, canvasW, canvasH);
-        
+
         // Draw heatmap background if enabled
         if (CONF.useHeatmap && this.lastHeatmap) {
             for (let vy = 0; vy < this.rows; vy++) {
@@ -653,7 +656,7 @@ class UI {
                     const vy = wordRow;
                     const px = vx * cellSize;
                     const py = vy * cellSize;
-                    
+
                     if (px < canvasW && py < canvasH) {
                         if (CONF.useAgeColor && this.lastAges) {
                             const age = this.lastAges[vy * this.cols + vx] || 0;
@@ -690,6 +693,105 @@ resetCurrentPattern();
 document.getElementById('app-version').textContent = APP_VERSION;
 
 const ui = new UI(canvas);
+
+// =============================================================================
+// URL HASH STATE
+// =============================================================================
+// Format: #x=100&y=-50&z=10&r=B3/S23
+
+const hashState = {
+    debounceTimer: null,
+    debounceDelay: 500,
+
+    // Parse hash string to state object
+    parse() {
+        const hash = window.location.hash.slice(1);
+        if (!hash) return null;
+
+        const params = new URLSearchParams(hash);
+        const state = {};
+
+        if (params.has('x')) state.x = parseInt(params.get('x'));
+        if (params.has('y')) state.y = parseInt(params.get('y'));
+        if (params.has('z')) state.z = parseInt(params.get('z'));
+        if (params.has('r')) state.r = params.get('r');
+
+        return state;
+    },
+
+    // Apply hash state to UI
+    apply() {
+        const state = this.parse();
+        if (!state) return;
+
+        // Apply zoom first (affects viewport size)
+        if (state.z && state.z >= CONF.cellSizeMin && state.z <= CONF.cellSizeMax) {
+            CONF.cellSize = state.z;
+            document.getElementById('zoom-range').value = state.z;
+            document.getElementById('zoom-label').innerText = `${state.z}px`;
+            ui.resize();
+        }
+
+        // Apply viewport position
+        if (typeof state.x === 'number' && !isNaN(state.x)) {
+            ui.viewX = state.x;
+        }
+        if (typeof state.y === 'number' && !isNaN(state.y)) {
+            ui.viewY = state.y;
+        }
+        if (typeof state.x === 'number' || typeof state.y === 'number') {
+            ui.worker.postMessage({
+                type: 'viewportMove',
+                payload: { x: ui.viewX, y: ui.viewY }
+            });
+        }
+
+        // Apply rule
+        if (state.r) {
+            const select = document.getElementById('rule-preset');
+            const customRow = document.getElementById('custom-rule-row');
+
+            // Check if it's a preset
+            const options = Array.from(select.options);
+            const match = options.find(o => o.value === state.r);
+
+            if (match) {
+                select.value = state.r;
+                customRow.style.display = 'none';
+            } else {
+                select.value = 'custom';
+                customRow.style.display = 'flex';
+                document.getElementById('custom-rule').value = state.r;
+            }
+            ui.worker.postMessage({ type: 'setRule', payload: state.r });
+        }
+    },
+
+    // Update hash from current state (debounced)
+    update() {
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+
+        this.debounceTimer = setTimeout(() => {
+            const params = new URLSearchParams();
+            params.set('x', Math.round(ui.viewX));
+            params.set('y', Math.round(ui.viewY));
+            params.set('z', CONF.cellSize);
+            params.set('r', ui.currentRule);
+
+            const newHash = '#' + params.toString();
+            if (window.location.hash !== newHash) {
+                history.replaceState(null, '', newHash);
+            }
+        }, this.debounceDelay);
+    }
+};
+
+// Apply hash state on load
+hashState.apply();
+
+// Listen for hash changes (back/forward navigation)
+window.addEventListener('hashchange', () => hashState.apply());
+
 const statDisplay = document.getElementById('stat-display');
 
 function updateStats(gen, pop, bbox = null, rule = null) {
@@ -698,7 +800,7 @@ function updateStats(gen, pop, bbox = null, rule = null) {
         text += ` | ${bbox.w}x${bbox.h}`;
     }
     statDisplay.innerText = text;
-    
+
     // Update population graph if visible
     drawPopGraph();
 }
@@ -710,14 +812,14 @@ const popGraphCtx = popGraphCanvas.getContext('2d');
 function drawPopGraph() {
     const history = ui.popHistory;
     if (history.length < 2) return;
-    
+
     const w = popGraphCanvas.width;
     const h = popGraphCanvas.height;
     const max = Math.max(...history, 1);
-    
+
     popGraphCtx.fillStyle = '#2E3440';
     popGraphCtx.fillRect(0, 0, w, h);
-    
+
     // Draw grid lines
     popGraphCtx.strokeStyle = '#3B4252';
     popGraphCtx.lineWidth = 1;
@@ -727,12 +829,12 @@ function drawPopGraph() {
         popGraphCtx.lineTo(w, y);
         popGraphCtx.stroke();
     }
-    
+
     // Draw population line
     popGraphCtx.strokeStyle = '#A3BE8C';
     popGraphCtx.lineWidth = 1.5;
     popGraphCtx.beginPath();
-    
+
     const step = w / (history.length - 1);
     for (let i = 0; i < history.length; i++) {
         const x = i * step;
@@ -744,7 +846,7 @@ function drawPopGraph() {
         }
     }
     popGraphCtx.stroke();
-    
+
     // Draw legend at bottom
     popGraphCtx.fillStyle = '#88C0D0';
     popGraphCtx.font = '9px monospace';
@@ -781,7 +883,7 @@ const actions = {
         // 7-66 = 1-60 FPS
         const fractionalValues = [0.1, 0.2, 0.25, 0.33, 0.5, 0.75, 1];
         let fps, label;
-        
+
         if (sliderVal < fractionalValues.length) {
             fps = fractionalValues[sliderVal];
             label = fps < 1 ? `${fps} FPS (${Math.round(1/fps)}s/step)` : '1 FPS';
@@ -789,7 +891,7 @@ const actions = {
             fps = sliderVal - fractionalValues.length + 1;
             label = `${fps} FPS`;
         }
-        
+
         document.getElementById('speed-range').value = sliderVal;
         document.getElementById('speed-label').innerText = label;
         ui.worker.postMessage({ type: 'setFps', payload: fps });
@@ -798,6 +900,7 @@ const actions = {
         document.getElementById('zoom-label').innerText = `${val}px`;
         CONF.cellSize = parseInt(val);
         ui.resize();
+        hashState.update();
     },
     rotate: () => {
         rotateCurrentPattern();
@@ -805,7 +908,7 @@ const actions = {
     },
     toggleSidebar: () => {
         document.getElementById('sidebar').classList.toggle('collapsed');
-        setTimeout(() => ui.resize(), 350); 
+        setTimeout(() => ui.resize(), 350);
     },
     recenter: () => {
         ui.viewX = 0;
@@ -814,6 +917,7 @@ const actions = {
             type: 'viewportMove',
             payload: { x: 0, y: 0 }
         });
+        hashState.update();
         toast("View Centered");
     }
 };
@@ -844,10 +948,10 @@ document.getElementById('history-toggle').onchange = (e) => {
     const enabled = e.target.checked;
     const sizeInput = document.getElementById('history-size');
     const revBtn = document.getElementById('btn-rev-step');
-    
+
     sizeInput.disabled = !enabled;
     revBtn.disabled = !enabled;
-    
+
     ui.worker.postMessage({
         type: 'setHistory',
         payload: { enabled, size: parseInt(sizeInput.value) }
@@ -962,7 +1066,7 @@ canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
+
     ui.mouse.x = x;
     ui.mouse.y = y;
 
@@ -975,16 +1079,16 @@ canvas.addEventListener('mousemove', e => {
             applyTool();
         }
     }
-    
+
     ui.mouse.lastX = x;
     ui.mouse.lastY = y;
 });
 
-canvas.addEventListener('mousedown', e => { 
-    ui.mouse.down = true; 
+canvas.addEventListener('mousedown', e => {
+    ui.mouse.down = true;
     ui.mouse.lastX = ui.mouse.x;
     ui.mouse.lastY = ui.mouse.y;
-    if (ui.mode !== 'move') applyTool(); 
+    if (ui.mode !== 'move') applyTool();
 });
 window.addEventListener('mouseup', () => { ui.mouse.down = false; });
 
@@ -1034,7 +1138,7 @@ function getTouchCenter(t1, t2) {
 canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    
+
     if (e.touches.length === 2) {
         // Two fingers: start pinch-to-zoom
         touch.pinching = true;
@@ -1050,13 +1154,13 @@ canvas.addEventListener('touchstart', e => {
         const t = e.touches[0];
         touch.startX = touch.lastX = t.clientX - rect.left;
         touch.startY = touch.lastY = t.clientY - rect.top;
-        
+
         ui.mouse.x = touch.startX;
         ui.mouse.y = touch.startY;
         ui.mouse.down = true;
         ui.mouse.lastX = touch.startX;
         ui.mouse.lastY = touch.startY;
-        
+
         if (ui.mode !== 'move') applyTool();
     }
 }, { passive: false });
@@ -1064,20 +1168,20 @@ canvas.addEventListener('touchstart', e => {
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    
+
     if (e.touches.length === 2 && touch.pinching) {
         // Pinch-to-zoom
         const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
         const scale = newDistance / touch.initialDistance;
         let newZoom = Math.round(touch.initialZoom * scale);
         newZoom = Math.max(CONF.cellSizeMin, Math.min(CONF.cellSizeMax, newZoom));
-        
+
         if (newZoom !== CONF.cellSize) {
             const range = document.getElementById('zoom-range');
             range.value = newZoom;
             actions.setZoom(newZoom);
         }
-        
+
         // Also pan with two fingers
         const center = getTouchCenter(e.touches[0], e.touches[1]);
         const cx = center.x - rect.left;
@@ -1087,16 +1191,16 @@ canvas.addEventListener('touchmove', e => {
         ui.moveViewport(dx, dy);
         touch.lastX = cx;
         touch.lastY = cy;
-        
+
     } else if (e.touches.length === 1 && touch.active) {
         // Single finger movement
         const t = e.touches[0];
         const x = t.clientX - rect.left;
         const y = t.clientY - rect.top;
-        
+
         ui.mouse.x = x;
         ui.mouse.y = y;
-        
+
         if (ui.mode === 'move') {
             const dx = (x - touch.lastX) / CONF.cellSize;
             const dy = (y - touch.lastY) / CONF.cellSize;
@@ -1104,7 +1208,7 @@ canvas.addEventListener('touchmove', e => {
         } else {
             applyTool();
         }
-        
+
         touch.lastX = x;
         touch.lastY = y;
         ui.mouse.lastX = x;
@@ -1114,7 +1218,7 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    
+
     if (e.touches.length === 0) {
         // All fingers lifted
         touch.active = false;
@@ -1160,7 +1264,7 @@ function applyTool() {
             if (targetIdx !== -1) updates.push({ idx: targetIdx, val: 1 });
         }
         ui.worker.postMessage({ type: 'setCells', payload: { updates }});
-        ui.mouse.down = false; 
+        ui.mouse.down = false;
     }
 }
 
@@ -1170,7 +1274,7 @@ window.addEventListener('keydown', (e) => {
     switch(e.key) {
         case ' ': e.preventDefault(); actions.togglePlay(); break;
         case 'ArrowRight': actions.step(); break;
-        case 'ArrowLeft': 
+        case 'ArrowLeft':
             if (document.getElementById('history-toggle').checked) {
                 actions.reverse();
             }
@@ -1198,7 +1302,7 @@ function toggleHelp() {
 // FPS display
 const fpsDisplay = document.getElementById('fps-display');
 function updateFpsDisplay(actual, target, chunks, historySize = 0) {
-    const color = actual >= target * 0.9 ? 'var(--success)' : 
+    const color = actual >= target * 0.9 ? 'var(--success)' :
                   actual >= target * 0.5 ? 'var(--warning)' : 'var(--error)';
     let text = `<span style="color:${color}">${actual}</span>/${target} FPS | ${chunks} chunks`;
     if (historySize > 0) {
@@ -1255,7 +1359,7 @@ const FILE_SIZE_HARD_LIMIT_MB = 100;
 document.getElementById('file-import').onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     // File size validation
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > FILE_SIZE_HARD_LIMIT_MB) {
@@ -1269,12 +1373,12 @@ document.getElementById('file-import').onchange = (e) => {
             return;
         }
     }
-    
+
     const reader = new FileReader();
     reader.onload = (ev) => {
         const content = ev.target.result;
         const ext = file.name.split('.').pop().toLowerCase();
-        
+
         // Detect format: MC, RLE, or JSON
         if (ext === 'mc' || content.startsWith('[M2]')) {
             loadFromMacrocell(content);
@@ -1285,7 +1389,7 @@ document.getElementById('file-import').onchange = (e) => {
         }
     };
     reader.readAsText(file);
-    e.target.value = ''; 
+    e.target.value = '';
 };
 
 function loadFromRLE(rleString) {
@@ -1297,7 +1401,7 @@ function loadFromRLE(rleString) {
         }
         const coords = result.coords;
         if (coords.length === 0) throw new Error("No cells found");
-        
+
         // Convert coords to packed format for worker
         // Find bounding box
         let maxX = 0, maxY = 0;
@@ -1305,18 +1409,18 @@ function loadFromRLE(rleString) {
             if (x > maxX) maxX = x;
             if (y > maxY) maxY = y;
         }
-        
+
         const w = maxX + 1;
         const h = maxY + 1;
         const stride = Math.ceil(w / BITS_PER_WORD);
         const data = new Array(stride * h).fill(0);
-        
+
         for (let [x, y] of coords) {
             const wordIdx = y * stride + Math.floor(x / BITS_PER_WORD);
             const bit = x % BITS_PER_WORD;
             data[wordIdx] |= (1 << bit);
         }
-        
+
         ui.worker.postMessage({
             type: 'load',
             payload: { w, h, data, packed: true }
@@ -1335,13 +1439,13 @@ function loadFromMacrocell(mcString) {
     try {
         const lines = mcString.split('\n');
         const nodes = [null]; // 1-indexed: node 0 = empty
-        
+
         // Parse 8x8 leaf pattern from RLE-like string
         function parseLeaf(rle) {
             const grid = new Array(8).fill(null).map(() => new Array(8).fill(0));
             let x = 0, y = 0;
             let count = 0;
-            
+
             for (let i = 0; i < rle.length; i++) {
                 const ch = rle[i];
                 if (ch >= '0' && ch <= '9') {
@@ -1364,11 +1468,11 @@ function loadFromMacrocell(mcString) {
             }
             return { level: 3, grid }; // Level 3 = 2^3 = 8x8 leaf
         }
-        
+
         for (let line of lines) {
             line = line.trim();
             if (!line || line.startsWith('[') || line.startsWith('#')) continue;
-            
+
             // Check if it's an internal node (starts with number)
             const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
             if (match) {
@@ -1377,44 +1481,44 @@ function loadFromMacrocell(mcString) {
                 const ne = parseInt(match[3]);
                 const sw = parseInt(match[4]);
                 const se = parseInt(match[5]);
-                
+
                 // Validate node references are in bounds
                 const currentIdx = nodes.length;
                 if (nw < 0 || nw >= currentIdx || ne < 0 || ne >= currentIdx ||
                     sw < 0 || sw >= currentIdx || se < 0 || se >= currentIdx) {
                     throw new Error(`Invalid node reference at node ${currentIdx}: indices must be < ${currentIdx}`);
                 }
-                
+
                 nodes.push({ level, nw, ne, sw, se });
-            } else if (line[0] === '$' || line[0] === '.' || line[0] === '*' || 
+            } else if (line[0] === '$' || line[0] === '.' || line[0] === '*' ||
                        line[0] === 'o' || line[0] === 'b') {
                 // It's a leaf node (8x8 pattern in RLE)
                 nodes.push(parseLeaf(line));
             }
-            
+
             // Limit node count to prevent DoS
             if (nodes.length > MC_MAX_NODES) {
                 throw new Error(`Node count exceeds maximum (${MC_MAX_NODES})`);
             }
         }
-        
+
         if (nodes.length <= 1) throw new Error("No nodes found");
-        
+
         const coords = [];
-        
+
         // Iterative extraction (avoid stack overflow on deep trees)
         const root = nodes[nodes.length - 1];
         const rootSize = Math.pow(2, root.level);
         const stack = [[nodes.length - 1, 0, 0, rootSize]];
-        
+
         while (stack.length > 0) {
             const [nodeIdx, x, y, size] = stack.pop();
-            
+
             if (nodeIdx === 0) continue;
-            
+
             const node = nodes[nodeIdx];
             if (!node) continue;
-            
+
             if (node.grid) {
                 // Leaf node: 8x8 grid
                 for (let ly = 0; ly < 8; ly++) {
@@ -1436,9 +1540,9 @@ function loadFromMacrocell(mcString) {
                 stack.push([node.nw, x, y, half]);
             }
         }
-        
+
         if (coords.length === 0) throw new Error("No live cells found");
-        
+
         // Normalize to origin
         let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
         for (let [x, y] of coords) {
@@ -1447,12 +1551,12 @@ function loadFromMacrocell(mcString) {
             maxX = Math.max(maxX, x);
             maxY = Math.max(maxY, y);
         }
-        
+
         const w = maxX - minX + 1;
         const h = maxY - minY + 1;
         const stride = Math.ceil(w / BITS_PER_WORD);
         const data = new Array(stride * h).fill(0);
-        
+
         for (let [x, y] of coords) {
             const nx = x - minX;
             const ny = y - minY;
@@ -1460,7 +1564,7 @@ function loadFromMacrocell(mcString) {
             const bit = nx % BITS_PER_WORD;
             data[wordIdx] |= (1 << bit);
         }
-        
+
         ui.worker.postMessage({
             type: 'load',
             payload: { w, h, data, packed: true }
@@ -1477,9 +1581,9 @@ function loadFromJSON(jsonString) {
         const state = JSON.parse(jsonString);
         if (!state.w || !state.h || !state.data) throw new Error("Invalid Format");
 
-        ui.worker.postMessage({ 
-            type: 'load', 
-            payload: state 
+        ui.worker.postMessage({
+            type: 'load',
+            payload: state
         });
         toast("Loaded");
     } catch (e) {
