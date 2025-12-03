@@ -28,11 +28,11 @@
   - [x] `copyBitsToBuffer()` handles aligned and misaligned cases
   - [x] Shift and OR across destination word boundaries
 
-- [ ] **Replace magic numbers with constants**
-  - [ ] `32` → `CHUNK_SIZE` / `BITS` (scattered throughout)
-  - [ ] `66` slider max (script.js)
-  - [ ] `5` heatmap boost (worker.js)
-  - [ ] `10` decay interval (worker.js)
+- [x] **Replace magic numbers with constants**
+  - [x] `32` → `CHUNK_SIZE` / `BITS` / `BITS_PER_WORD`
+  - [x] `66` slider max → `SPEED_SLIDER_MAX` (script.js)
+  - [x] `5` heatmap boost → `CONFIG.HEATMAP_BOOST` (worker.js)
+  - [x] `10` decay interval → already `HEATMAP_DECAY_INTERVAL`
 
 - [ ] **Consistent coordinate naming convention**
   - [ ] Define: `vx,vy` = viewport, `gx,gy` = global, `cx,cy` = chunk, `lx,ly` = local
