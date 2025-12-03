@@ -34,10 +34,10 @@
   - [x] `5` heatmap boost → `CONFIG.HEATMAP_BOOST` (worker.js)
   - [x] `10` decay interval → already `HEATMAP_DECAY_INTERVAL`
 
-- [ ] **Consistent coordinate naming convention**
-  - [ ] Define: `vx,vy` = viewport, `gx,gy` = global, `cx,cy` = chunk, `lx,ly` = local
-  - [ ] Document convention in header comment
-  - [ ] Rename mixed variables: `vx/vy`, `x/y`, `cellX/cellY`, `gx/gy`
+- [x] **Consistent coordinate naming convention**
+  - [x] Define: `vx,vy` = viewport, `gx,gy` = global, `cx,cy` = chunk, `lx,ly` = local
+  - [x] Document convention in header comments (script.js, worker.js)
+  - [x] Rename `cellX/cellY` → `vx/vy` in render loops
 
 - [ ] **Message handler registry** (worker.js)
   - [ ] Replace switch statement with handler object lookup
