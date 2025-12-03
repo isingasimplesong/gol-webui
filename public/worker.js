@@ -47,6 +47,7 @@ const CONFIG = {
     HISTORY_MIN: 5,
     HISTORY_MAX: 100,
     HISTORY_DEFAULT: 20,
+    HEATMAP_BOOST: 5,    // Activity increment per state change
 };
 
 // Cellular Automaton Rules (Life-like: B.../S...)
@@ -422,7 +423,7 @@ function copyBitsToBuffer(srcWord, srcBitStart, bitCount, destBuffer, destRowOff
     const destBitOffset = destBitStart & 31; // destBitStart % 32
     
     // Check if bits span two destination words
-    const bitsInFirstWord = 32 - destBitOffset;
+    const bitsInFirstWord = BITS - destBitOffset;
     
     if (bitCount <= bitsInFirstWord) {
         // All bits fit in one destination word
@@ -531,17 +532,17 @@ function getCell(x, y) {
 }
 
 function loadFlatData(data, w, h) {
-    // Load a flat Uint32Array (stride = w/32) into chunks
+    // Load a flat Uint32Array (stride = w/BITS) into chunks
     // We assume (0,0) is top-left of this data
-    const stride = Math.ceil(w / 32);
+    const stride = Math.ceil(w / BITS);
     for(let i=0; i<data.length; i++) {
         const word = data[i];
         if (word === 0) continue;
         
         const row = Math.floor(i / stride);
-        const colStart = (i % stride) * 32;
+        const colStart = (i % stride) * BITS;
         
-        for(let b=0; b<32; b++) {
+        for(let b=0; b<BITS; b++) {
             if ((word >>> b) & 1) {
                 setCell(colStart + b, row, 1);
             }
@@ -632,7 +633,7 @@ function exportWorld() {
             const word = chunk[ly];
             if (word === 0) continue;
             
-            for (let lx = 0; lx < 32; lx++) {
+            for (let lx = 0; lx < BITS; lx++) {
                 if ((word >>> lx) & 1) {
                     const gx = x0 + lx;
                     const gy = y0 + ly;
@@ -1103,7 +1104,7 @@ function updateHeatmap(oldChunks, newChunks) {
                     const idx = ly * CHUNK_SIZE + lx;
                     // Increment activity count (cap at 255)
                     if (heatChunk[idx] < 255) {
-                        heatChunk[idx] += 5; // Boost for visibility
+                        heatChunk[idx] += CONFIG.HEATMAP_BOOST;
                         if (heatChunk[idx] > 255) heatChunk[idx] = 255;
                     }
                 }
@@ -1133,8 +1134,8 @@ function updateHeatmap(oldChunks, newChunks) {
 function sendUpdate() {
     // Render Viewport to Uint32Array
     // viewW is width in cells.
-    // stride = ceil(viewW / 32)
-    const stride = Math.ceil(viewW / 32);
+    // stride = ceil(viewW / BITS)
+    const stride = Math.ceil(viewW / BITS);
     const buffer = new Uint32Array(stride * viewH);
     let pop = 0;
 
