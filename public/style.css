@@ -1,7 +1,7 @@
 /* Nord Theme Palette - Dark (default) */
 :root {
     --bg: #2E3440; --bg-light: #3B4252; --bg-lighter: #434C5E;
-    --text: #D8DEE9; --text-dim: #4C566A;
+    --text: #D8DEE9; --text-dim: #8590A3;
     --primary: #88C0D0; --secondary: #81A1C1;
     --success: #A3BE8C; --error: #BF616A;
     --warning: #B48EAD; /* Nord Magenta */
