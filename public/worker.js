@@ -121,7 +121,7 @@ let bboxDirty = true; // Forces recalculation when chunks are modified outside s
 // Each entry stores only chunks that changed from the previous state
 let historyEnabled = false;
 let historyMaxSize = 20;
-let history = []; // Array of {delta: Map<key, {old: Uint32Array|null, new: Uint32Array|null}>, generation, population}
+let historyBuffer = []; // Array of {delta: Map<key, {old: Uint32Array|null, new: Uint32Array|null}>, generation, population}
 
 // Age tracking (optional, for visualization)
 // Uses parallel chunk structure: Map<"cx,cy", Uint8Array(1024)> where 1024 = 32x32 cells
@@ -193,7 +193,7 @@ const messageHandlers = {
         historyEnabled = payload.enabled;
         historyMaxSize = payload.size || 20;
         if (!historyEnabled) {
-            history = [];
+            historyBuffer = [];
         }
     },
     
@@ -242,7 +242,7 @@ const messageHandlers = {
         generation = 0;
         totalPopulation = 0;
         bboxDirty = true;
-        history = [];
+        historyBuffer = [];
         running = false;
         sendUpdate();
     },
@@ -250,7 +250,7 @@ const messageHandlers = {
     randomize(payload) {
         chunks.clear();
         ageChunks.clear();
-        history = [];
+        historyBuffer = [];
         randomize(payload, true);
         recalculateTotalPopulation();
         bboxDirty = true;
@@ -751,15 +751,15 @@ function pushHistoryDelta() {
     
     // Only push if something changed
     if (delta.size > 0) {
-        history.push({
+        historyBuffer.push({
             delta: delta,
             generation: preStepGeneration,
             population: preStepPopulation
         });
         
         // Ring buffer: trim oldest if over limit
-        if (history.length > historyMaxSize) {
-            history.shift();
+        if (historyBuffer.length > historyMaxSize) {
+            historyBuffer.shift();
         }
     }
     
@@ -767,9 +767,9 @@ function pushHistoryDelta() {
 }
 
 function popHistory() {
-    if (!historyEnabled || history.length === 0) return false;
+    if (!historyEnabled || historyBuffer.length === 0) return false;
     
-    const state = history.pop();
+    const state = historyBuffer.pop();
     applyDeltaReverse(state.delta);
     generation = state.generation;
     totalPopulation = state.population;
@@ -1212,7 +1212,7 @@ function sendUpdate() {
         rule: currentRuleString,
         fps: { actual: actualFps, target: fps },
         chunks: chunks.size,
-        historySize: history.length,
+        historySize: historyBuffer.length,
     };
     
     const transferables = [buffer.buffer];
