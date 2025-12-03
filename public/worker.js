@@ -479,6 +479,8 @@ function garbageCollectChunks() {
     return toDelete.length;
 }
 
+// Utility function for debugging/future use
+// eslint-disable-next-line no-unused-vars
 function getCell(x, y) {
     const cx = Math.floor(x / CHUNK_SIZE);
     const cy = Math.floor(y / CHUNK_SIZE);
@@ -491,7 +493,7 @@ function getCell(x, y) {
     return (chunk[ly] >>> lx) & 1;
 }
 
-function loadFlatData(data, w, h) {
+function loadFlatData(data, w, _h) {
     // Load a flat Uint32Array (stride = w/BITS) into chunks
     // We assume (0,0) is top-left of this data
     const stride = Math.ceil(w / BITS);
@@ -971,6 +973,7 @@ function step() {
 // Age tracking functions using parallel chunk structure
 // Each age chunk is a Uint8Array(1024) for 32x32 cells, indexed as [ly * 32 + lx]
 
+// eslint-disable-next-line no-unused-vars
 function getAgeChunk(cx, cy, create = false) {
     const key = getChunkKey(cx, cy);
     let ageChunk = ageChunks.get(key);
@@ -983,8 +986,8 @@ function getAgeChunk(cx, cy, create = false) {
 
 function initializeAges() {
     ageChunks.clear();
-    for (let [key, chunk] of chunks) {
-        const [cx, cy] = key.split(',').map(Number);
+    for (const [key, chunk] of chunks) {
+        // cx, cy not needed here, just iterating all chunks
         const ageChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
         
         for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -1003,8 +1006,7 @@ function initializeAges() {
 function updateAges(newChunks) {
     const newAgeChunks = new Map();
     
-    for (let [key, chunk] of newChunks) {
-        const [cx, cy] = key.split(',').map(Number);
+    for (const [key, chunk] of newChunks) {
         const oldAgeChunk = ageChunks.get(key);
         const newAgeChunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
         
@@ -1026,6 +1028,7 @@ function updateAges(newChunks) {
     ageChunks = newAgeChunks;
 }
 
+// eslint-disable-next-line no-unused-vars
 function getCellAge(x, y) {
     const cx = Math.floor(x / CHUNK_SIZE);
     const cy = Math.floor(y / CHUNK_SIZE);
@@ -1097,7 +1100,6 @@ function sendUpdate() {
     // stride = ceil(viewW / BITS)
     const stride = Math.ceil(viewW / BITS);
     const buffer = new Uint32Array(stride * viewH);
-    let pop = 0;
 
     // We iterate the Viewport, not the chunks
     // For each row in viewport:
@@ -1154,7 +1156,7 @@ function sendUpdate() {
                 const destXStart = intersectX - viewX;
                 
                 // Optimized word-aligned bit copy
-                pop += copyBitsToBuffer(word, srcXStart, intersectW, buffer, destY * stride, destXStart);
+                copyBitsToBuffer(word, srcXStart, intersectW, buffer, destY * stride, destXStart);
             }
         }
     }
@@ -1281,7 +1283,6 @@ function stepSilent() {
 }
 
 // FPS tracking
-let lastFrameTime = 0;
 let frameCount = 0;
 let actualFps = 0;
 let fpsUpdateTime = 0;

@@ -28,7 +28,7 @@ const BITS_PER_WORD = 32;     // Bits in Uint32 word (must match worker)
 const SPEED_SLIDER_MAX = 66;  // Max slider value (7-66 maps to 1-60 FPS)
 
 // Import utilities from lib.js (loaded via <script> before this file)
-const { hexToRGB, parseRLE, rleToCoords, parseRule } = Lib;
+const { hexToRGB, parseRLE, rleToCoords } = Lib;
 
 // WebGL Renderer (optional, for massive grids)
 class WebGLRenderer {
@@ -485,8 +485,6 @@ class UI {
         if (!this.lastGrid) return;
 
         const cellSize = CONF.cellSize;
-        const canvasW = this.canvas.width;
-        const canvasH = this.canvas.height;
 
         // Try WebGL for small cells (very fast for many cells)
         if (this.useWebGL && cellSize <= 3 && !CONF.useAgeColor && !CONF.useHeatmap) {
@@ -794,7 +792,7 @@ window.addEventListener('hashchange', () => hashState.apply());
 
 const statDisplay = document.getElementById('stat-display');
 
-function updateStats(gen, pop, bbox = null, rule = null) {
+function updateStats(gen, pop, bbox = null, _rule = null) {
     let text = `Gen: ${gen} | Pop: ${pop}`;
     if (bbox) {
         text += ` | ${bbox.w}x${bbox.h}`;
@@ -1084,7 +1082,7 @@ canvas.addEventListener('mousemove', e => {
     ui.mouse.lastY = y;
 });
 
-canvas.addEventListener('mousedown', e => {
+canvas.addEventListener('mousedown', () => {
     ui.mouse.down = true;
     ui.mouse.lastX = ui.mouse.x;
     ui.mouse.lastY = ui.mouse.y;
@@ -1239,7 +1237,7 @@ canvas.addEventListener('touchend', e => {
     }
 }, { passive: false });
 
-canvas.addEventListener('touchcancel', e => {
+canvas.addEventListener('touchcancel', () => {
     touch.active = false;
     touch.pinching = false;
     ui.mouse.down = false;
