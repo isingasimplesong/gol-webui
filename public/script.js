@@ -19,7 +19,7 @@
 // =============================================================================
 // VERSION - Update this for each release
 // =============================================================================
-const APP_VERSION = 'v1.2.3';
+const APP_VERSION = 'v1.3.0';
 
 // =============================================================================
 // CONSTANTS
@@ -367,6 +367,10 @@ class UI {
         this.mouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
         this.mode = 'draw';
 
+        // Selection state (viewport coordinates)
+        this.selection = null; // { x1, y1, x2, y2 } in cell coords, null if none
+        this.selectionStart = null; // { x, y } during drag
+
         // Population history for graph
         this.popHistory = [];
         this.popHistoryMax = 100;
@@ -508,25 +512,31 @@ class UI {
             this.drawFillRect();
         }
 
-        this.drawGhostPattern();
+this.drawGhostPattern();
+        this.drawSelection();
     }
 
-    // Draw ghost pattern for paste mode
-    drawGhostPattern() {
-        const cellSize = CONF.cellSize;
-        if (this.mode === 'paste' && !this.isRunning) {
-            const sz = cellSize > 1 ? cellSize - 1 : 1;
-            this.ctx.fillStyle = 'rgba(136, 192, 208, 0.5)';
-            const p = getCurrentPattern();
-            const mx = Math.floor(this.mouse.x / cellSize);
-            const my = Math.floor(this.mouse.y / cellSize);
+    // Draw selection rectangle overlay
+    drawSelection() {
+        const sel = this.selection;
+        if (!sel) return;
 
-            for (let [px, py] of p) {
-                const tx = (mx + px) * cellSize;
-                const ty = (my + py) * cellSize;
-                this.ctx.fillRect(tx, ty, sz, sz);
-            }
-        }
+        const cellSize = CONF.cellSize;
+        const x = Math.min(sel.x1, sel.x2) * cellSize;
+        const y = Math.min(sel.y1, sel.y2) * cellSize;
+        const w = (Math.abs(sel.x2 - sel.x1) + 1) * cellSize;
+        const h = (Math.abs(sel.y2 - sel.y1) + 1) * cellSize;
+
+        // Semi-transparent fill
+        this.ctx.fillStyle = 'rgba(136, 192, 208, 0.2)';
+        this.ctx.fillRect(x, y, w, h);
+
+        // Border
+        this.ctx.strokeStyle = '#88C0D0';
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([5, 3]);
+        this.ctx.strokeRect(x, y, w, h);
+        this.ctx.setLineDash([]);
     }
 
     // Fast rendering using ImageData for small cell sizes
@@ -1112,6 +1122,18 @@ canvas.addEventListener('mousemove', e => {
             const dx = (x - ui.mouse.lastX) / CONF.cellSize;
             const dy = (y - ui.mouse.lastY) / CONF.cellSize;
             ui.moveViewport(dx, dy);
+        } else if (ui.mode === 'select') {
+            // Update selection rectangle
+            const cellX = Math.floor(x / CONF.cellSize);
+            const cellY = Math.floor(y / CONF.cellSize);
+            if (ui.selectionStart) {
+                ui.selection = {
+                    x1: ui.selectionStart.x,
+                    y1: ui.selectionStart.y,
+                    x2: cellX,
+                    y2: cellY
+                };
+            }
         } else {
             applyTool();
         }
@@ -1125,9 +1147,25 @@ canvas.addEventListener('mousedown', () => {
     ui.mouse.down = true;
     ui.mouse.lastX = ui.mouse.x;
     ui.mouse.lastY = ui.mouse.y;
-    if (ui.mode !== 'move') applyTool();
+
+    if (ui.mode === 'select') {
+        // Start selection
+        const cellX = Math.floor(ui.mouse.x / CONF.cellSize);
+        const cellY = Math.floor(ui.mouse.y / CONF.cellSize);
+        ui.selectionStart = { x: cellX, y: cellY };
+        ui.selection = { x1: cellX, y1: cellY, x2: cellX, y2: cellY };
+    } else if (ui.mode !== 'move') {
+        applyTool();
+    }
 });
-window.addEventListener('mouseup', () => { ui.mouse.down = false; });
+
+window.addEventListener('mouseup', () => {
+    if (ui.mode === 'select' && ui.selectionStart) {
+        ui.selectionStart = null;
+        // Keep selection visible after mouseup
+    }
+    ui.mouse.down = false;
+});
 
 // Wheel Zoom
 canvas.addEventListener('wheel', e => {
@@ -1305,8 +1343,129 @@ function applyTool() {
     }
 }
 
+// =============================================================================
+// SELECTION OPERATIONS
+// =============================================================================
+
+/**
+ * Get live cell coordinates within selection (relative to selection origin).
+ * @returns {[number, number][]} Array of [x, y] coords relative to selection top-left
+ */
+function getSelectedCells() {
+    const sel = ui.selection;
+    if (!sel || !ui.lastGrid) return [];
+
+    const x1 = Math.min(sel.x1, sel.x2);
+    const y1 = Math.min(sel.y1, sel.y2);
+    const x2 = Math.max(sel.x1, sel.x2);
+    const y2 = Math.max(sel.y1, sel.y2);
+
+    const coords = [];
+    for (let vy = y1; vy <= y2; vy++) {
+        for (let vx = x1; vx <= x2; vx++) {
+            // Check if cell is alive in lastGrid (bitpacked)
+            const wordIdx = vy * ui.stride + Math.floor(vx / BITS_PER_WORD);
+            const bit = vx % BITS_PER_WORD;
+            if (wordIdx < ui.lastGrid.length && (ui.lastGrid[wordIdx] >>> bit) & 1) {
+                coords.push([vx - x1, vy - y1]);
+            }
+        }
+    }
+    return coords;
+}
+
+/**
+ * Copy selection to clipboard as RLE.
+ */
+async function copySelection() {
+    const coords = getSelectedCells();
+    if (coords.length === 0) {
+        toast('No cells in selection', true);
+        return;
+    }
+
+    const rle = `x = 0, y = 0, rule = ${ui.currentRule}\n${Lib.coordsToRLE(coords)}`;
+    try {
+        await navigator.clipboard.writeText(rle);
+        toast(`Copied ${coords.length} cells`);
+    } catch (_err) {
+        toast('Copy failed', true);
+    }
+}
+
+/**
+ * Delete cells in selection.
+ */
+function deleteSelection() {
+    const sel = ui.selection;
+    if (!sel) return;
+
+    const x1 = Math.min(sel.x1, sel.x2);
+    const y1 = Math.min(sel.y1, sel.y2);
+    const x2 = Math.max(sel.x1, sel.x2);
+    const y2 = Math.max(sel.y1, sel.y2);
+
+    const updates = [];
+    for (let vy = y1; vy <= y2; vy++) {
+        for (let vx = x1; vx <= x2; vx++) {
+            const idx = ui.idx(vx, vy);
+            if (idx !== -1) {
+                updates.push({ idx, val: 0 });
+            }
+        }
+    }
+
+    if (updates.length > 0) {
+        ui.worker.postMessage({ type: 'setCells', payload: { updates }});
+        toast(`Deleted ${(x2 - x1 + 1) * (y2 - y1 + 1)} cells`);
+    }
+}
+
+/**
+ * Cut selection (copy + delete).
+ */
+async function cutSelection() {
+    await copySelection();
+    deleteSelection();
+    ui.selection = null;
+}
+
+/**
+ * Clear selection.
+ */
+function clearSelection() {
+    ui.selection = null;
+    ui.selectionStart = null;
+}
+
 window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    // Ctrl+C: Copy selection
+    if (e.ctrlKey && e.key === 'c') {
+        if (ui.selection) {
+            e.preventDefault();
+            copySelection();
+            return;
+        }
+    }
+
+    // Ctrl+X: Cut selection
+    if (e.ctrlKey && e.key === 'x') {
+        if (ui.selection) {
+            e.preventDefault();
+            cutSelection();
+            return;
+        }
+    }
+
+    // Delete/Backspace: Delete selection
+    if ((e.key === 'Delete' || e.key === 'Backspace') && ui.selection) {
+        e.preventDefault();
+        deleteSelection();
+        ui.selection = null;
+        return;
+    }
 
     switch(e.key) {
         case ' ': e.preventDefault(); actions.togglePlay(); break;
@@ -1316,7 +1475,9 @@ window.addEventListener('keydown', (e) => {
                 actions.reverse();
             }
             break;
-        case 'c': case 'C': actions.clear(); break;
+        case 'c': case 'C':
+            if (!e.ctrlKey) actions.clear();
+            break;
         case 'r': case 'R': actions.rotate(); break;
         case '[': {
             const current = parseInt(document.getElementById('speed-range').value);
@@ -1327,7 +1488,13 @@ window.addEventListener('keydown', (e) => {
             actions.setFps(Math.min(SPEED_SLIDER_MAX, current + 3));
         } break;
         case '/': if (e.ctrlKey) toggleHelp(); break;
-        case 'Escape': document.getElementById('help-modal').classList.remove('show'); break;
+        case 'Escape':
+            if (ui.selection) {
+                clearSelection();
+            } else {
+                document.getElementById('help-modal').classList.remove('show');
+            }
+            break;
         case 'Tab': e.preventDefault(); actions.toggleSidebar(); break;
     }
 });

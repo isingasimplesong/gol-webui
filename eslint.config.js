@@ -19,6 +19,7 @@ export default [
         history: 'readonly',
         localStorage: 'readonly',
         URLSearchParams: 'readonly',
+        navigator: 'readonly',
         confirm: 'readonly',
         URL: 'readonly',
         Blob: 'readonly',
