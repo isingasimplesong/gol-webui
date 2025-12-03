@@ -397,6 +397,45 @@ function isChunkEmpty(chunk) {
     return true;
 }
 
+/**
+ * Copy bits from a source word to destination buffer using word-aligned operations.
+ * 
+ * @param {number} srcWord - Source 32-bit word
+ * @param {number} srcBitStart - Start bit position in source (0-31)
+ * @param {number} bitCount - Number of bits to copy (1-32)
+ * @param {Uint32Array} destBuffer - Destination buffer
+ * @param {number} destRowOffset - Word offset for start of destination row
+ * @param {number} destBitStart - Start bit position in destination row
+ * @returns {number} Population count of copied bits
+ */
+function copyBitsToBuffer(srcWord, srcBitStart, bitCount, destBuffer, destRowOffset, destBitStart) {
+    // Extract relevant bits from source
+    // Create mask of 'bitCount' 1-bits, shifted to srcBitStart
+    // Handle bitCount=32: (1 << 32) === 1 in JS due to 32-bit overflow, use >>> trick
+    const baseMask = bitCount >= 32 ? 0xFFFFFFFF : (1 << bitCount) - 1;
+    const extractedBits = (srcWord >>> srcBitStart) & baseMask;
+    
+    if (extractedBits === 0) return 0;
+    
+    // Calculate destination word(s)
+    const destWordIdx = destRowOffset + (destBitStart >>> 5); // destBitStart / 32
+    const destBitOffset = destBitStart & 31; // destBitStart % 32
+    
+    // Check if bits span two destination words
+    const bitsInFirstWord = 32 - destBitOffset;
+    
+    if (bitCount <= bitsInFirstWord) {
+        // All bits fit in one destination word
+        destBuffer[destWordIdx] |= (extractedBits << destBitOffset);
+    } else {
+        // Bits span two destination words
+        destBuffer[destWordIdx] |= (extractedBits << destBitOffset);
+        destBuffer[destWordIdx + 1] |= (extractedBits >>> bitsInFirstWord);
+    }
+    
+    return popcount32(extractedBits);
+}
+
 // Fast population count using lookup table (Brian Kernighan's algorithm is also fine)
 function popcount32(n) {
     n = n - ((n >>> 1) & 0x55555555);
@@ -1153,18 +1192,8 @@ function sendUpdate() {
                 
                 const destXStart = intersectX - viewX;
                 
-                // Bit-by-bit copy (slow but reliable for now)
-                // TODO: Optimize with bit shifting/masking for bulk copy
-                for (let k = 0; k < intersectW; k++) {
-                    const bitPos = srcXStart + k;
-                    if ((word >>> bitPos) & 1) {
-                         pop++; // Stats
-                         const targetX = destXStart + k;
-                         const targetWordIdx = destY * stride + Math.floor(targetX / 32);
-                         const targetBit = targetX % 32;
-                         buffer[targetWordIdx] |= (1 << targetBit);
-                    }
-                }
+                // Optimized word-aligned bit copy
+                pop += copyBitsToBuffer(word, srcXStart, intersectW, buffer, destY * stride, destXStart);
             }
         }
     }

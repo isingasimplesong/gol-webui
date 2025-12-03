@@ -23,10 +23,10 @@
 
 ### P1 - High Priority
 
-- [ ] **Viewport extraction bulk copy** (worker.js)
-  - [ ] Replace bit-by-bit copy with word-aligned bulk copy
-  - [ ] Direct word copy when `srcXStart % 32 == destXStart % 32`
-  - [ ] Shift and OR adjacent words otherwise
+- [x] **Viewport extraction bulk copy** (worker.js)
+  - [x] Replace bit-by-bit copy with word-aligned bulk copy
+  - [x] `copyBitsToBuffer()` handles aligned and misaligned cases
+  - [x] Shift and OR across destination word boundaries
 
 - [ ] **Replace magic numbers with constants**
   - [ ] `32` → `CHUNK_SIZE` / `BITS` (scattered throughout)
