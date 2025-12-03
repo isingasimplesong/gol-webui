@@ -1,6 +1,6 @@
 {
   "name": "life-engine",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "type": "module",
   "scripts": {
     "test": "vitest run",

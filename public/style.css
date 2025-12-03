@@ -1,7 +1,7 @@
-/* Nord Theme Palette */
+/* Nord Theme Palette - Dark (default) */
 :root {
     --bg: #2E3440; --bg-light: #3B4252; --bg-lighter: #434C5E;
-    --text: #D8DEE9; --text-dim: #94A3B8;
+    --text: #D8DEE9; --text-dim: #4C566A;
     --primary: #88C0D0; --secondary: #81A1C1;
     --success: #A3BE8C; --error: #BF616A;
     --warning: #B48EAD; /* Nord Magenta */
@@ -10,6 +10,16 @@
     --sidebar-width: 320px;
     --transition-duration: 0.3s;
     --shadow-default: 0 10px 25px rgba(0,0,0,0.5);
+}
+
+/* Nord Theme - Light */
+:root.light {
+    --bg: #ECEFF4; --bg-light: #E5E9F0; --bg-lighter: #D8DEE9;
+    --text: #2E3440; --text-dim: #4C566A;
+    --primary: #5E81AC; --secondary: #81A1C1;
+    --success: #A3BE8C; --error: #BF616A;
+    --warning: #B48EAD;
+    --shadow-default: 0 10px 25px rgba(0,0,0,0.15);
 }
 
 body {

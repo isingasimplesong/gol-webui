@@ -19,7 +19,7 @@
 // =============================================================================
 // VERSION - Update this for each release
 // =============================================================================
-const APP_VERSION = 'v1.2.2';
+const APP_VERSION = 'v1.2.3';
 
 // =============================================================================
 // CONSTANTS
@@ -625,7 +625,7 @@ class UI {
         }
 
         // Grid Lines
-        this.ctx.strokeStyle = '#353C4A';
+        this.ctx.strokeStyle = CONF.gridLineColor;
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         for (let x = 0; x <= canvasW; x += cellSize) {
@@ -1041,6 +1041,45 @@ document.getElementById('webgl-toggle').onchange = (e) => {
         }
     }
 };
+
+// Theme toggle (dark/light)
+const themeToggle = document.getElementById('theme-toggle');
+
+// Theme color palettes (Nord)
+const THEME_COLORS = {
+    dark: {
+        gridColor: '#3B4252',
+        gridLineColor: '#353C4A',
+        deadColor: '#2E3440',
+    },
+    light: {
+        gridColor: '#E5E9F0',
+        gridLineColor: '#E0E4EA',
+        deadColor: '#ECEFF4',
+    }
+};
+
+function setTheme(light) {
+    document.documentElement.classList.toggle('light', light);
+    localStorage.setItem('theme', light ? 'light' : 'dark');
+    themeToggle.checked = light;
+    
+    // Update grid colors
+    const colors = light ? THEME_COLORS.light : THEME_COLORS.dark;
+    CONF.gridColor = colors.gridColor;
+    CONF.gridLineColor = colors.gridLineColor;
+    CONF.deadColor = colors.deadColor;
+}
+
+// Init theme from localStorage or system preference
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme) {
+    setTheme(savedTheme === 'light');
+} else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+    setTheme(true);
+}
+
+themeToggle.onchange = (e) => setTheme(e.target.checked);
 
 function rotateCurrentPattern() {
     const p = getCurrentPattern();

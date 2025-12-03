@@ -17,6 +17,7 @@ export default [
         requestAnimationFrame: 'readonly',
         performance: 'readonly',
         history: 'readonly',
+        localStorage: 'readonly',
         URLSearchParams: 'readonly',
         confirm: 'readonly',
         URL: 'readonly',
