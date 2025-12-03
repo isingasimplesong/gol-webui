@@ -11,6 +11,11 @@
  * with the worker using flat viewport indices for cell operations.
  */
 
+// =============================================================================
+// VERSION - Update this for each release
+// =============================================================================
+const APP_VERSION = 'v1.0.3';
+
 // Color utility for ImageData rendering
 function hexToRGB(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -704,6 +709,9 @@ const canvas = document.getElementById('grid');
 buildPatternCache();
 populatePatternDropdown();
 resetCurrentPattern();
+
+// Inject version into UI
+document.getElementById('app-version').textContent = APP_VERSION;
 
 const ui = new UI(canvas);
 const statDisplay = document.getElementById('stat-display');

@@ -57,6 +57,7 @@ aside.collapsed .panel-toggle {
 
 .header { padding: 20px; border-bottom: 1px solid var(--bg-lighter); }
 h1 { margin: 0; font-size: 1.2rem; color: var(--primary); letter-spacing: -1px; }
+.version-tag { font-size: 0.65rem; color: var(--text-dim); font-weight: normal; margin-left: 4px; }
 .stats { font-size: 0.8rem; color: var(--secondary); margin-top: 5px; }
 
 .controls { padding: 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 20px; }
