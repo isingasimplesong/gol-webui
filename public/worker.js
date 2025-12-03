@@ -2,6 +2,12 @@
  * Worker Logic for Game of Life
  * Phase 4: Infinite Grid (Sparse Chunking) + SWAR
  * 
+ * Import shared utilities from lib.js
+ */
+importScripts('lib.js');
+const { parseRule: libParseRule, popcount32 } = Lib;
+
+/**
  * COORDINATE SYSTEMS:
  * 
  * 1. Viewport Coordinates (vx, vy)
@@ -70,32 +76,11 @@ const RULE_PRESETS = {
     'B34/S34': { name: '34 Life', birth: [3,4], survival: [3,4] },
 };
 
-// Parse rule string (e.g., "B3/S23" or "B36/S23")
-function parseRule(ruleStr) {
-    const birth = [false, false, false, false, false, false, false, false, false];
-    const survival = [false, false, false, false, false, false, false, false, false];
-    
-    const match = ruleStr.toUpperCase().match(/B(\d*)\/?S(\d*)/);
-    if (!match) return null;
-    
-    const birthDigits = match[1] || '';
-    const survivalDigits = match[2] || '';
-    
-    for (const d of birthDigits) {
-        const n = parseInt(d);
-        if (n >= 0 && n <= 8) birth[n] = true;
-    }
-    for (const d of survivalDigits) {
-        const n = parseInt(d);
-        if (n >= 0 && n <= 8) survival[n] = true;
-    }
-    
-    return { birth, survival };
-}
+// parseRule imported from lib.js as libParseRule
 
 // Set rule from string
 function setRule(ruleStr) {
-    const parsed = parseRule(ruleStr);
+    const parsed = libParseRule(ruleStr);
     if (parsed) {
         birthRule = parsed.birth;
         survivalRule = parsed.survival;
@@ -417,12 +402,7 @@ function copyBitsToBuffer(srcWord, srcBitStart, bitCount, destBuffer, destRowOff
     return popcount32(extractedBits);
 }
 
-// Fast population count using lookup table (Brian Kernighan's algorithm is also fine)
-function popcount32(n) {
-    n = n - ((n >>> 1) & 0x55555555);
-    n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
-    return (((n + (n >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
-}
+// popcount32 imported from lib.js
 
 function countChunkPopulation(chunk) {
     let pop = 0;

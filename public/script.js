@@ -19,7 +19,7 @@
 // =============================================================================
 // VERSION - Update this for each release
 // =============================================================================
-const APP_VERSION = 'v1.0.3';
+const APP_VERSION = 'v1.1.0';
 
 // =============================================================================
 // CONSTANTS
@@ -27,15 +27,8 @@ const APP_VERSION = 'v1.0.3';
 const BITS_PER_WORD = 32;     // Bits in Uint32 word (must match worker)
 const SPEED_SLIDER_MAX = 66;  // Max slider value (7-66 maps to 1-60 FPS)
 
-// Color utility for ImageData rendering
-function hexToRGB(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
-    } : { r: 0, g: 0, b: 0 };
-}
+// Import utilities from lib.js (loaded via <script> before this file)
+const { hexToRGB, parseRLE, rleToCoords, parseRule } = Lib;
 
 // WebGL Renderer (optional, for massive grids)
 class WebGLRenderer {
@@ -273,35 +266,7 @@ const PATTERN_LIBRARY = {
     }
 };
 
-// Convert RLE to coordinate array for paste mode
-function rleToCoords(rle) {
-    const coords = [];
-    let x = 0, y = 0, count = 0;
-    
-    for (let i = 0; i < rle.length; i++) {
-        const char = rle[i];
-        if (char >= '0' && char <= '9') {
-            count = count * 10 + parseInt(char);
-        } else if (char === 'b' || char === '.') {
-            x += (count || 1);
-            count = 0;
-        } else if (char === 'o' || char === '*') {
-            const run = count || 1;
-            for (let k = 0; k < run; k++) {
-                coords.push([x + k, y]);
-            }
-            x += run;
-            count = 0;
-        } else if (char === '$') {
-            y += (count || 1);
-            x = 0;
-            count = 0;
-        } else if (char === '!') {
-            break;
-        }
-    }
-    return coords;
-}
+// rleToCoords is imported from Lib
 
 // Build pattern cache from library (for paste mode)
 let PATTERN_CACHE = {};
@@ -990,59 +955,7 @@ function rotateCurrentPattern() {
     toast("Rotated");
 }
 
-// RLE Parser (used by unified import)
-// Returns { ok: true, coords: [...] } or { ok: false, error: string }
-const RLE_MAX_CELLS = 10_000_000;
-const RLE_MAX_RUN_LENGTH = 100_000;
-
-function parseRLE(str) {
-    const lines = str.split('\n');
-    let data = '';
-    
-    // Strip headers/comments
-    for (let line of lines) {
-        line = line.trim();
-        if (line.startsWith('#') || line.startsWith('x =')) continue;
-        data += line;
-    }
-
-    const coords = [];
-    let x = 0, y = 0;
-    let count = 0;
-
-    for (let i = 0; i < data.length; i++) {
-        const char = data[i];
-        
-        if (char >= '0' && char <= '9') {
-            count = count * 10 + parseInt(char);
-            // Validate run-length during accumulation
-            if (count > RLE_MAX_RUN_LENGTH) {
-                return { ok: false, error: `Run length ${count} exceeds maximum (${RLE_MAX_RUN_LENGTH})` };
-            }
-        } else if (char === 'b') { // Dead cell
-            x += (count || 1);
-            count = 0;
-        } else if (char === 'o') { // Live cell
-            const run = count || 1;
-            // Check cell limit before adding
-            if (coords.length + run > RLE_MAX_CELLS) {
-                return { ok: false, error: `Pattern exceeds maximum cell count (${RLE_MAX_CELLS})` };
-            }
-            for (let k = 0; k < run; k++) {
-                coords.push([x + k, y]);
-            }
-            x += run;
-            count = 0;
-        } else if (char === '$') { // Newline
-            y += (count || 1);
-            x = 0;
-            count = 0;
-        } else if (char === '!') { // End
-            break;
-        }
-    }
-    return { ok: true, coords };
-}
+// parseRLE is imported from Lib (includes validation with RLE_MAX_CELLS, RLE_MAX_RUN_LENGTH)
 
 // Mouse move handler to track cursor and apply tools / panning
 canvas.addEventListener('mousemove', e => {
