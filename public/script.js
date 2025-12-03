@@ -497,8 +497,9 @@ class UI {
             }
             if (this.webglRenderer.available) {
                 if (this.webglRenderer.render(this.lastGrid, this.stride, this.cols, this.rows, cellSize, CONF.liveColor)) {
-                    // WebGL rendered, draw ghost pattern overlay using 2D context
+                    // WebGL rendered, draw overlays using 2D context
                     this.drawGhostPattern();
+                    this.drawSelection();
                     return;
                 }
             }
@@ -512,7 +513,7 @@ class UI {
             this.drawFillRect();
         }
 
-this.drawGhostPattern();
+        this.drawGhostPattern();
         this.drawSelection();
     }
 
@@ -1133,6 +1134,8 @@ canvas.addEventListener('mousemove', e => {
                     x2: cellX,
                     y2: cellY
                 };
+                // Force redraw to show selection
+                ui.draw();
             }
         } else {
             applyTool();
@@ -1154,6 +1157,7 @@ canvas.addEventListener('mousedown', () => {
         const cellY = Math.floor(ui.mouse.y / CONF.cellSize);
         ui.selectionStart = { x: cellX, y: cellY };
         ui.selection = { x1: cellX, y1: cellY, x2: cellX, y2: cellY };
+        ui.draw();
     } else if (ui.mode !== 'move') {
         applyTool();
     }
