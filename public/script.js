@@ -1,11 +1,16 @@
 /**
  * UI & Render Logic (Main Thread)
  * 
- * COORDINATE SYSTEMS (see worker.js for full documentation):
+ * COORDINATE SYSTEMS:
  * 
- * - Canvas pixels: raw mouse/render coordinates
- * - Viewport cells: canvas pixels / cellSize, range [0, cols) x [0, rows)
- * - Global cells: viewX + viewport_x, viewY + viewport_y
+ * - px, py: Canvas pixel coordinates (raw mouse/render)
+ * - vx, vy: Viewport cell coordinates, range [0, cols) x [0, rows)
+ * - gx, gy: Global cell coordinates (viewX + vx, viewY + vy)
+ * 
+ * NAMING CONVENTION:
+ * - Variables ending in X/Y are pixel coords unless prefixed
+ * - cellX/cellY are legacy aliases for vx/vy (viewport cells)
+ * - Use vx/vy for viewport, gx/gy for global in new code
  * 
  * The UI class manages viewport offset (viewX, viewY) and communicates
  * with the worker using flat viewport indices for cell operations.
@@ -145,10 +150,10 @@ class WebGLRenderer {
             
             for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
-                    const cellX = wordColStart + bit;
-                    const cellY = wordRow;
+                    const vx = wordColStart + bit;
+                    const vy = wordRow;
                     // Center of cell
-                    positions.push(cellX + 0.5, cellY + 0.5);
+                    positions.push(vx + 0.5, vy + 0.5);
                 }
             }
         }
@@ -592,21 +597,21 @@ class UI {
             
             for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
-                    const cellX = wordColStart + bit;
-                    const cellY = wordRow;
+                    const vx = wordColStart + bit;
+                    const vy = wordRow;
                     
                     // Determine color
                     let rgb;
                     if (CONF.useAgeColor && this.lastAges) {
-                        const age = this.lastAges[cellY * this.cols + cellX] || 0;
+                        const age = this.lastAges[vy * this.cols + vx] || 0;
                         rgb = hexToRGB(getAgeColor(age));
                     } else {
                         rgb = liveRGB;
                     }
                     
-                    // Fill cell pixels
-                    const startX = cellX * cellSize;
-                    const startY = cellY * cellSize;
+                    // Fill cell pixels (vx/vy -> pixel coords)
+                    const startX = vx * cellSize;
+                    const startY = vy * cellSize;
                     const endX = Math.min(startX + cellSize, canvasW);
                     const endY = Math.min(startY + cellSize, canvasH);
                     
@@ -637,15 +642,15 @@ class UI {
         
         // Draw heatmap background if enabled
         if (CONF.useHeatmap && this.lastHeatmap) {
-            for (let cellY = 0; cellY < this.rows; cellY++) {
-                for (let cellX = 0; cellX < this.cols; cellX++) {
-                    const heat = this.lastHeatmap[cellY * this.cols + cellX];
+            for (let vy = 0; vy < this.rows; vy++) {
+                for (let vx = 0; vx < this.cols; vx++) {
+                    const heat = this.lastHeatmap[vy * this.cols + vx];
                     if (heat > 0) {
                         const color = getHeatmapColor(heat);
                         if (color) {
                             this.ctx.fillStyle = color;
                             this.ctx.globalAlpha = 0.5;
-                            this.ctx.fillRect(cellX * cellSize, cellY * cellSize, cellSize, cellSize);
+                            this.ctx.fillRect(vx * cellSize, vy * cellSize, cellSize, cellSize);
                             this.ctx.globalAlpha = 1;
                         }
                     }
@@ -679,19 +684,19 @@ class UI {
 
             for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
-                    const cellX = wordColStart + bit;
-                    const cellY = wordRow;
-                    const x = cellX * cellSize;
-                    const y = cellY * cellSize;
+                    const vx = wordColStart + bit;
+                    const vy = wordRow;
+                    const px = vx * cellSize;
+                    const py = vy * cellSize;
                     
-                    if (x < canvasW && y < canvasH) {
+                    if (px < canvasW && py < canvasH) {
                         if (CONF.useAgeColor && this.lastAges) {
-                            const age = this.lastAges[cellY * this.cols + cellX] || 0;
+                            const age = this.lastAges[vy * this.cols + vx] || 0;
                             this.ctx.fillStyle = getAgeColor(age);
                         } else {
                             this.ctx.fillStyle = CONF.liveColor;
                         }
-                        this.ctx.fillRect(x, y, sz, sz);
+                        this.ctx.fillRect(px, py, sz, sz);
                     }
                 }
             }
