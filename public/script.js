@@ -16,6 +16,12 @@
 // =============================================================================
 const APP_VERSION = 'v1.0.3';
 
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+const BITS_PER_WORD = 32;     // Bits in Uint32 word (must match worker)
+const SPEED_SLIDER_MAX = 66;  // Max slider value (7-66 maps to 1-60 FPS)
+
 // Color utility for ImageData rendering
 function hexToRGB(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -135,9 +141,9 @@ class WebGLRenderer {
             if (word === 0) continue;
             
             const wordRow = Math.floor(i / stride);
-            const wordColStart = (i % stride) * 32;
+            const wordColStart = (i % stride) * BITS_PER_WORD;
             
-            for (let bit = 0; bit < 32; bit++) {
+            for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
                     const cellX = wordColStart + bit;
                     const cellY = wordRow;
@@ -415,7 +421,7 @@ class UI {
         this.canvas.height = this.canvas.parentElement.clientHeight;
         this.cols = Math.floor(this.canvas.width / CONF.cellSize);
         this.rows = Math.floor(this.canvas.height / CONF.cellSize);
-        this.stride = Math.ceil(this.cols / 32);
+        this.stride = Math.ceil(this.cols / BITS_PER_WORD);
         
         // Update viewport size (preserve: true implied for init if not explicit, 
         // but here we use 'resize' type for safety if already running)
@@ -582,9 +588,9 @@ class UI {
             if (word === 0) continue;
             
             const wordRow = Math.floor(i / this.stride);
-            const wordColStart = (i % this.stride) * 32;
+            const wordColStart = (i % this.stride) * BITS_PER_WORD;
             
-            for (let bit = 0; bit < 32; bit++) {
+            for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
                     const cellX = wordColStart + bit;
                     const cellY = wordRow;
@@ -669,9 +675,9 @@ class UI {
             if (word === 0) continue;
 
             const wordRow = Math.floor(i / this.stride);
-            const wordColStart = (i % this.stride) * 32;
+            const wordColStart = (i % this.stride) * BITS_PER_WORD;
 
-            for (let bit = 0; bit < 32; bit++) {
+            for (let bit = 0; bit < BITS_PER_WORD; bit++) {
                 if ((word >>> bit) & 1) {
                     const cellX = wordColStart + bit;
                     const cellY = wordRow;
@@ -1117,7 +1123,7 @@ window.addEventListener('keydown', (e) => {
         } break;
         case ']': {
             const current = parseInt(document.getElementById('speed-range').value);
-            actions.setFps(Math.min(66, current + 3));
+            actions.setFps(Math.min(SPEED_SLIDER_MAX, current + 3));
         } break;
         case '/': if (e.ctrlKey) toggleHelp(); break;
         case 'Escape': document.getElementById('help-modal').classList.remove('show'); break;
@@ -1242,12 +1248,12 @@ function loadFromRLE(rleString) {
         
         const w = maxX + 1;
         const h = maxY + 1;
-        const stride = Math.ceil(w / 32);
+        const stride = Math.ceil(w / BITS_PER_WORD);
         const data = new Array(stride * h).fill(0);
         
         for (let [x, y] of coords) {
-            const wordIdx = y * stride + Math.floor(x / 32);
-            const bit = x % 32;
+            const wordIdx = y * stride + Math.floor(x / BITS_PER_WORD);
+            const bit = x % BITS_PER_WORD;
             data[wordIdx] |= (1 << bit);
         }
         
@@ -1384,14 +1390,14 @@ function loadFromMacrocell(mcString) {
         
         const w = maxX - minX + 1;
         const h = maxY - minY + 1;
-        const stride = Math.ceil(w / 32);
+        const stride = Math.ceil(w / BITS_PER_WORD);
         const data = new Array(stride * h).fill(0);
         
         for (let [x, y] of coords) {
             const nx = x - minX;
             const ny = y - minY;
-            const wordIdx = ny * stride + Math.floor(nx / 32);
-            const bit = nx % 32;
+            const wordIdx = ny * stride + Math.floor(nx / BITS_PER_WORD);
+            const bit = nx % BITS_PER_WORD;
             data[wordIdx] |= (1 << bit);
         }
         
